@@ -1,0 +1,144 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;0,14..32,800;0,14..32,900;1,14..32,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    @apply bg-ink-50 text-ink-900 font-sans antialiased;
+    min-height: 100vh;
+  }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { @apply bg-ink-100; }
+  ::-webkit-scrollbar-thumb { @apply bg-ink-300 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-teal-400; }
+}
+
+@layer components {
+
+  /* ── Cards ──────────────────────────────────────────────── */
+  .card {
+    @apply bg-white border border-ink-100 rounded-2xl p-6 shadow-card;
+  }
+  .card-hover {
+    @apply card transition-all duration-200 cursor-pointer
+           hover:shadow-card-md hover:border-ink-200 hover:-translate-y-0.5;
+  }
+  .card-teal {
+    @apply bg-white border border-teal-200 rounded-2xl p-6 shadow-teal;
+  }
+
+  /* ── Buttons ─────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 font-semibold rounded-xl
+           transition-all duration-200 focus-visible:outline-none
+           focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn px-6 py-3 bg-teal-600 text-white shadow-teal
+           hover:bg-teal-700 hover:shadow-teal-md hover:scale-[1.02]
+           active:scale-[0.98] disabled:hover:scale-100;
+  }
+  .btn-secondary {
+    @apply btn px-6 py-3 bg-white text-ink-800 border border-ink-200
+           hover:bg-ink-50 hover:border-ink-300 hover:shadow-card active:scale-[0.98];
+  }
+  .btn-ghost {
+    @apply btn px-4 py-2 text-ink-600
+           hover:text-ink-900 hover:bg-ink-100 active:scale-[0.98];
+  }
+  .btn-danger {
+    @apply btn px-4 py-2 text-red-600 hover:bg-red-50 active:scale-[0.98];
+  }
+
+  /* ── Form fields ─────────────────────────────────────────── */
+  .input-field {
+    @apply w-full px-4 py-3 bg-white border border-ink-200 text-ink-900
+           placeholder-ink-400 rounded-xl outline-none
+           transition-all duration-200 shadow-inner-sm
+           focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15
+           hover:border-ink-300;
+  }
+  .textarea-field {
+    @apply input-field resize-none leading-relaxed;
+  }
+  .label {
+    @apply block text-sm font-medium text-ink-700 mb-1.5;
+  }
+  .label-hint {
+    @apply block text-xs text-ink-400 mb-2;
+  }
+
+  /* ── Select ──────────────────────────────────────────────── */
+  select.input-field {
+    @apply appearance-none bg-no-repeat pr-10;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238b949e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-position: right 12px center;
+  }
+
+  /* ── Badges ──────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium;
+  }
+  .badge-teal   { @apply badge bg-teal-50 text-teal-700 border border-teal-200; }
+  .badge-green  { @apply badge bg-emerald-50 text-emerald-700 border border-emerald-200; }
+  .badge-yellow { @apply badge bg-amber-50 text-amber-700 border border-amber-200; }
+  .badge-red    { @apply badge bg-red-50 text-red-700 border border-red-200; }
+  .badge-ink    { @apply badge bg-ink-100 text-ink-600 border border-ink-200; }
+
+  /* ── Section headings ────────────────────────────────────── */
+  .section-title    { @apply text-xl font-bold text-ink-900; }
+  .section-subtitle { @apply text-sm text-ink-500 mt-1; }
+
+  /* ── Divider ─────────────────────────────────────────────── */
+  .divider { @apply border-t border-ink-100 my-6; }
+
+  /* ── Highlight text ──────────────────────────────────────── */
+  .text-accent { @apply text-teal-600; }
+  .text-accent-strong { @apply text-teal-700 font-semibold; }
+
+  /* ── Upload zone ─────────────────────────────────────────── */
+  .upload-zone {
+    @apply relative flex flex-col items-center justify-center w-full
+           min-h-[200px] rounded-2xl border-2 border-dashed border-ink-200
+           bg-ink-50 cursor-pointer transition-all duration-300
+           hover:border-teal-400 hover:bg-teal-50/50
+           animate-pulse-ring;
+  }
+  .upload-zone-active {
+    @apply border-teal-500 bg-teal-50 scale-[1.01];
+  }
+  .upload-zone-done {
+    @apply border-teal-300 bg-teal-50/40 border-solid;
+  }
+
+  /* ── Score ring color helpers ────────────────────────────── */
+  .score-high { color: #0d9488; }
+  .score-mid  { color: #d97706; }
+  .score-low  { color: #dc2626; }
+
+  /* ── Shimmer skeleton ────────────────────────────────────── */
+  .skeleton {
+    @apply rounded-lg bg-gradient-to-r from-ink-100 via-ink-50 to-ink-100
+           animate-shimmer;
+    background-size: 800px 100%;
+  }
+
+  /* ── Stagger helpers (used with inline style delay) ──────── */
+  .stagger-1 { animation-delay: 0.05s; }
+  .stagger-2 { animation-delay: 0.10s; }
+  .stagger-3 { animation-delay: 0.15s; }
+  .stagger-4 { animation-delay: 0.20s; }
+  .stagger-5 { animation-delay: 0.25s; }
+}
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+}
