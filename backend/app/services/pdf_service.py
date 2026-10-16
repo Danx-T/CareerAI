@@ -1,15 +1,17 @@
+from typing import Union
 import pymupdf
 
 
-def extract_text_from_pdf(file_path: str) -> str:
-    """Extract full text from a PDF file using PyMuPDF."""
+def extract_text_from_pdf(source: Union[str, bytes]) -> str:
+    """Extract full text from a PDF file path or in-memory bytes using PyMuPDF."""
     text_parts = []
     try:
-        with pymupdf.open(file_path) as doc:
-            for page_num, page in enumerate(doc):
-                page_text = page.get_text("text")
-                if page_text.strip():
-                    text_parts.append(f"--- Page {page_num + 1} ---\n{page_text}")
+        doc = pymupdf.open(stream=source, filetype="pdf") if isinstance(source, bytes) else pymupdf.open(source)
+        with doc:
+            for page in doc:
+                page_text = page.get_text("text").strip()
+                if page_text:
+                    text_parts.append(page_text)
     except Exception as e:
         raise ValueError(f"Failed to parse PDF: {str(e)}")
 

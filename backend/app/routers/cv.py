@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,7 +11,9 @@ from app.models.cv import CVOptimization
 from app.schemas.cv import CVUploadResponse, CVOptimizeRequest, CVOptimizeResponse, CVHistoryItem
 from app.core.security import get_current_user
 from app.core.config import settings
-from app.services import storage_service, pdf_service, ai_service
+from app.services import pdf_service, ai_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/cv", tags=["CV"])
 
@@ -19,43 +23,37 @@ async def upload_cv(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
 ):
-    """Upload a PDF, extract its text, delete the file immediately, return the text."""
+    """Upload a PDF, extract its text in-memory with zero disk persistence, return the text."""
     # Validate extension
-    if not file.filename.lower().endswith(".pdf"):
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only PDF files are supported",
         )
 
-    # Validate magic bytes
-    header = await file.read(5)
-    await file.seek(0)
-    if not header.startswith(b"%PDF"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid PDF file",
-        )
+    # Read entire file into memory buffer
+    content = await file.read()
 
-    # Save temporarily to disk so PyMuPDF can read it
-    file_path = await storage_service.save_upload_file(file, current_user.id)
-
-    # Check file size
-    size_mb = storage_service.get_file_size_mb(file_path)
-    if size_mb > settings.MAX_FILE_SIZE_MB:
-        storage_service.delete_file(file_path)
+    # Check file size against MAX_FILE_SIZE_MB
+    max_bytes = settings.MAX_FILE_SIZE_MB * 1024 * 1024
+    if len(content) > max_bytes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File too large. Maximum size is {settings.MAX_FILE_SIZE_MB}MB",
         )
 
-    # Extract text then delete the file — we don't store CVs
+    # Validate magic bytes
+    if not content.startswith(b"%PDF"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid PDF file",
+        )
+
+    # Extract text purely in-memory
     try:
-        extracted_text = pdf_service.extract_text_from_pdf(file_path)
+        extracted_text = await asyncio.to_thread(pdf_service.extract_text_from_pdf, content)
     except ValueError as e:
-        storage_service.delete_file(file_path)
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-    finally:
-        storage_service.delete_file(file_path)
 
     return CVUploadResponse(
         filename=file.filename,
@@ -82,7 +80,8 @@ async def optimize_cv(
             job_title=request.job_title,
             job_description=request.job_description,
         )
-    except Exception:
+    except Exception as e:
+        logger.error("AI CV optimization failed: %s", str(e), exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="AI service is temporarily unavailable. Please try again later.",
