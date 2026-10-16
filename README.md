@@ -311,10 +311,10 @@ pytest -v tests/
 ### Test Suite Summary
 - **Total Tests**: **98 passing tests**
 - **Test Modules**:
-  - `tests/test_ai_helpers.py` (47 tests): JSON mode parsing fallbacks, score clamping (0–100), string sanitizers, category normalizers, and PyMuPDF in-memory PDF extraction.
+  - `tests/test_ai_helpers.py` (26 tests): JSON mode parsing fallbacks, score clamping (0–100), string sanitizers, category normalizers, and PyMuPDF in-memory PDF extraction.
   - `tests/test_auth.py` (9 tests): Registration, duplicate email race handling, bcrypt 72-byte boundaries, invalid login rejection, and deactivated account gating.
-  - `tests/test_cv.py` (20 tests): PDF magic byte verification, zero-retention memory processing, optimization schemas, user data isolation, and cascading foreign-key deletion.
-  - `tests/test_interview.py` (22 tests): Question generation, answer saving, answer clearing, `asyncio.Semaphore(3)` concurrent evaluation, conflict guards (`409 Conflict`), and session isolation.
+  - `tests/test_cv.py` (14 tests): PDF magic byte verification, zero-retention memory processing, optimization schemas, user data isolation, and cascading foreign-key deletion.
+  - `tests/test_interview.py` (49 tests): Question generation, answer saving, answer clearing, `asyncio.Semaphore(3)` concurrent evaluation, conflict guards (`409 Conflict`), and session isolation.
 
 ---
 
@@ -350,7 +350,7 @@ docker-compose down
 ## Project Layout
 
 ```
-software CV/
+CareerAI/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml               # GitHub Actions dual-job CI workflow (Python & Node)
@@ -407,9 +407,3 @@ software CV/
 ├── .env.example                 # Root environment variables template
 └── README.md                    # Root architecture & deployment documentation
 ```
-
----
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
