@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, DateTime, Boolean
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.db.database import Base
 
@@ -14,8 +14,11 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     interview_sessions = relationship(
         "InterviewSession", back_populates="owner", cascade="all, delete-orphan"
+    )
+    cv_optimizations = relationship(
+        "CVOptimization", back_populates="owner", cascade="all, delete-orphan"
     )

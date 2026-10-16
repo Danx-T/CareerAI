@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List
 from datetime import datetime
 
@@ -9,9 +9,9 @@ class CVUploadResponse(BaseModel):
 
 
 class CVOptimizeRequest(BaseModel):
-    cv_text: str
-    job_title: str
-    job_description: str
+    cv_text: str = Field(..., min_length=1, max_length=20000)
+    job_title: str = Field(..., min_length=1, max_length=200)
+    job_description: str = Field(..., min_length=1, max_length=10000)
 
 
 class CVOptimizeResponse(BaseModel):

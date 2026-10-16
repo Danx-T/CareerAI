@@ -1,6 +1,6 @@
-from sqlalchemy import Column, Integer, String, DateTime, Float, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Float, Text, ForeignKey, JSON
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.db.database import Base
 
@@ -9,7 +9,9 @@ class InterviewSession(Base):
     __tablename__ = "interview_sessions"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     job_title = Column(String, nullable=False)
     job_description = Column(Text, nullable=False)
     status = Column(String, default="active")  # active | completed
@@ -17,7 +19,9 @@ class InterviewSession(Base):
     total_questions = Column(Integer, default=0)
     answered_questions = Column(Integer, default=0)
     summary_feedback = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    top_strengths = Column(JSON, default=list)
+    top_improvements = Column(JSON, default=list)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime, nullable=True)
 
     owner = relationship("User", back_populates="interview_sessions")
@@ -39,6 +43,9 @@ class InterviewQuestion(Base):
     user_answer = Column(Text, nullable=True)
     ai_feedback = Column(Text, nullable=True)
     score = Column(Float, nullable=True)
+    strengths = Column(JSON, default=list)
+    improvements = Column(JSON, default=list)
+    model_answer_hint = Column(Text, nullable=True)
     answered_at = Column(DateTime, nullable=True)
 
     session = relationship("InterviewSession", back_populates="questions")
