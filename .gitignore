@@ -34,10 +34,7 @@ coverage.xml
 *.db
 *.sqlite
 *.sqlite3
-
-# ----- Uploaded Files -----
-backend/uploads/*
-!backend/uploads/.gitkeep
+test.db
 
 # ----- Node / Frontend -----
 node_modules/
@@ -67,6 +64,8 @@ Thumbs.db
 # (docker-compose.yml is committed; ignore override files)
 docker-compose.override.yml
 
-# ----- Logs -----
+# ----- Logs & Agents -----
 logs/
 *.log
+.agents/
+PROJECT_REVIEW.md

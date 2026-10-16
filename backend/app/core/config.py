@@ -1,5 +1,5 @@
 import sys
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -21,17 +21,17 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
     GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
 
-    # File Storage
-    UPLOAD_DIR: str = "./uploads"
+    # File Upload
     MAX_FILE_SIZE_MB: int = 10
 
     # CORS
     FRONTEND_URL: str = "http://localhost:3000"
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 settings = Settings()

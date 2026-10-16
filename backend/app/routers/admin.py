@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func
 from typing import List
 
 from app.db.database import get_db
 from app.models.user import User
-from app.models.interview import InterviewSession, InterviewQuestion
+from app.models.interview import InterviewSession
 from app.schemas.user import UserResponse
 from app.core.security import get_current_user
 
