@@ -1,5 +1,8 @@
 from app.db.database import engine, Base
-from app.models import user, interview, cv  # noqa: F401 – import models to register them
+from app.models import user, interview, cv
+
+__all__ = ["init_db"]
+_models = (user, interview, cv)
 
 
 async def init_db():
