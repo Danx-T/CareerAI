@@ -179,7 +179,16 @@ async def save_answer(
 
     is_clearing = not bool(answer_data.answer.strip()) if answer_data.answer else True
     had_answer = bool(question.user_answer and question.user_answer.strip())
-    question.user_answer = answer_data.answer.strip() if not is_clearing else None
+    new_answer = answer_data.answer.strip() if not is_clearing else None
+
+    if question.user_answer != new_answer:
+        question.score = None
+        question.ai_feedback = None
+        question.strengths = []
+        question.improvements = []
+        question.model_answer_hint = None
+
+    question.user_answer = new_answer
 
     if is_clearing and had_answer:
         session.answered_questions = max(0, session.answered_questions - 1)
@@ -227,7 +236,7 @@ async def complete_session(
 
     now = datetime.now(timezone.utc)
 
-    # ── Step 1: Evaluate all answered questions concurrently ──
+    # ── Step 1: Evaluate all answered questions that haven't been scored yet ──
     sem = asyncio.Semaphore(3)
 
     async def _evaluate_single_question(question: InterviewQuestion):
@@ -241,7 +250,8 @@ async def complete_session(
                     job_description=session.job_description,
                 )
                 question.ai_feedback = feedback.get("feedback", "")
-                question.score = float(feedback.get("score", 0.0))
+                raw_score = feedback.get("score")
+                question.score = float(raw_score) if raw_score is not None else None
                 question.strengths = (
                     feedback.get("strengths")
                     if isinstance(feedback.get("strengths"), list)
@@ -270,10 +280,13 @@ async def complete_session(
     answered_questions = [
         q for q in questions if q.user_answer and q.user_answer.strip()
     ]
-    if answered_questions:
-        await asyncio.gather(*(_evaluate_single_question(q) for q in answered_questions))
-
-    await db.flush()
+    questions_to_evaluate = [
+        q for q in answered_questions if q.score is None
+    ]
+    if questions_to_evaluate:
+        await asyncio.gather(*(_evaluate_single_question(q) for q in questions_to_evaluate))
+        # Commit evaluated answers immediately so they are not lost if report generation fails
+        await db.commit()
 
     # ── Step 2: Build QA data for the overall report ──
     qa_data = [

@@ -2,7 +2,7 @@ import os
 
 # Set test environment variables BEFORE importing app or settings
 os.environ["SECRET_KEY"] = "test-secret-key-for-careerai-automated-testing-1234567890"
-os.environ["GROQ_API_KEY"] = "gsk_testdummyapikey1234567890abcdef"
+os.environ["GROQ_API_KEY"] = "test_dummy_groq_api_key_for_pytest"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
 
 import pytest

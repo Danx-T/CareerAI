@@ -31,6 +31,10 @@ async def get_password_hash_async(password: str) -> str:
     return await asyncio.to_thread(get_password_hash, password)
 
 
+# Precomputed bcrypt hash used when login email is not found to equalize response timing
+DUMMY_PASSWORD_HASH: str = get_password_hash("dummy-password-for-timing-mitigation")
+
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (

@@ -69,19 +69,70 @@ def _to_score(val: Any, default: float = 0.0) -> float:
         return _clamp(default)
 
 
+def _to_score_optional(val: Any) -> Optional[float]:
+    """
+    Parse a numeric score into a float clamped between 0.0 and 100.0,
+    or return None if the value is missing or unparseable.
+    """
+    if val is None or isinstance(val, bool):
+        return None
+    if isinstance(val, (int, float)):
+        return _to_score(val)
+    if isinstance(val, str):
+        cleaned = val.strip().rstrip("%").strip()
+        if not cleaned:
+            return None
+        try:
+            return _to_score(float(cleaned))
+        except (ValueError, TypeError):
+            match = re.search(r"[-+]?\d*\.?\d+", val)
+            if match:
+                try:
+                    return _to_score(float(match.group(0)))
+                except (ValueError, TypeError):
+                    return None
+            return None
+    return None
+
+
 def _to_str_list(val: Any) -> List[str]:
-    """Clean a collection into a list of non-empty stripped strings."""
+    """Clean a collection into a list of non-empty stripped strings, extracting text from dict items if present."""
     if not isinstance(val, (list, tuple, set)):
         if isinstance(val, str) and val.strip():
             return [val.strip()]
         return []
 
+    preferred_keys = (
+        "text",
+        "description",
+        "suggestion",
+        "improvement",
+        "strength",
+        "point",
+        "item",
+        "keyword",
+        "value",
+    )
     result: List[str] = []
     for item in val:
         if isinstance(item, str):
             cleaned = item.strip()
             if cleaned:
                 result.append(cleaned)
+        elif isinstance(item, dict):
+            extracted: Optional[str] = None
+            for k in preferred_keys:
+                v = item.get(k)
+                if isinstance(v, str) and v.strip():
+                    extracted = v.strip()
+                    break
+            if extracted is None:
+                for v in item.values():
+                    if isinstance(v, str) and v.strip():
+                        extracted = v.strip()
+                        break
+            if extracted:
+                result.append(extracted)
     return result
 
 
@@ -187,7 +238,7 @@ async def _groq_generate(
                         retry_after = response.headers.get("Retry-After")
                         if retry_after:
                             try:
-                                sleep_time = max(float(retry_after), 1.0)
+                                sleep_time = min(max(float(retry_after), 1.0), 20.0)
                             except (ValueError, TypeError):
                                 pass
                     await asyncio.sleep(sleep_time)
@@ -210,7 +261,7 @@ async def _groq_generate(
                     retry_after = e.response.headers.get("Retry-After")
                     if retry_after:
                         try:
-                            sleep_time = max(float(retry_after), 1.0)
+                            sleep_time = min(max(float(retry_after), 1.0), 20.0)
                         except (ValueError, TypeError):
                             pass
                 await asyncio.sleep(sleep_time)
@@ -427,22 +478,22 @@ Include:
     for q in raw_questions:
         if not isinstance(q, dict):
             continue
-        q_text = str(q.get("question_text", "")).strip() or f"Tell me about your experience as a {job_title}."
+        q_text = str(q.get("question_text") or "").strip()
+        if not q_text:
+            continue
         cat = _normalize_category(q.get("category", "behavioral"))
         all_questions.append({
             "order_index": len(all_questions) + 1,
             "question_text": q_text,
             "category": cat,
         })
+        if len(all_questions) >= num_questions:
+            break
 
     if not all_questions:
-        all_questions.append({
-            "order_index": 1,
-            "question_text": f"Tell me about your experience relevant to the {job_title} role.",
-            "category": "behavioral",
-        })
+        raise ValueError("AI model returned no valid interview questions.")
 
-    return all_questions
+    return all_questions[:num_questions]
 
 
 # ─── Answer Evaluation (focused single-task prompt) ──────────────────────────
@@ -485,7 +536,7 @@ Return ONLY a valid JSON object with this exact structure:
     if not isinstance(result, dict):
         result = {}
 
-    score = _to_score(result.get("score"), default=50.0)
+    score = _to_score_optional(result.get("score"))
     feedback = str(result.get("feedback") or "Answer reviewed.").strip()
     strengths = _to_str_list(result.get("strengths", []))
     improvements = _to_str_list(result.get("improvements", []))
@@ -496,11 +547,6 @@ Return ONLY a valid JSON object with this exact structure:
         hint_str = str(hint_raw).strip()
         if hint_str:
             model_answer_hint = hint_str
-
-    if not strengths:
-        strengths = ["Addressed the interview question directly"]
-    if not improvements:
-        improvements = ["Structure future responses using the STAR method (Situation, Task, Action, Result)"]
 
     return {
         "score": score,
@@ -545,7 +591,7 @@ async def generate_interview_report(
 
     qa_text = "\n".join(qa_lines) if qa_lines else "No questions answered."
 
-    prompt = f"""You are an executive interview coach reviewing a completed {job_title} mock interview.
+    prompt = f"""You are a senior interview coach reviewing a completed {job_title} mock interview.
 
 Questions, candidate answer excerpts, and question scores:
 {qa_text}
@@ -568,11 +614,6 @@ Return ONLY a valid JSON object with this exact structure:
     ).strip()
     top_strengths = _to_str_list(result.get("top_strengths", []))
     top_improvements = _to_str_list(result.get("top_improvements", []))
-
-    if not top_strengths:
-        top_strengths = ["Completed all questions in the mock interview session"]
-    if not top_improvements:
-        top_improvements = ["Practice delivering concise, high-impact responses using the STAR method"]
 
     return {
         "summary_feedback": summary_feedback,

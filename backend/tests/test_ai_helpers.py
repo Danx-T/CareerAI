@@ -4,9 +4,14 @@ import pytest
 from app.services.ai_service import (
     _parse_json_response,
     _to_score,
+    _to_score_optional,
     _to_str_list,
     _normalize_category,
     _sanitize_cv_text,
+    _groq_generate,
+    close_client,
+    generate_interview_questions,
+    evaluate_answer,
 )
 from app.services.pdf_service import extract_text_from_pdf
 
@@ -170,6 +175,15 @@ class TestToScore:
         assert _to_score({}) == 0.0
         assert _to_score(object(), default=40.0) == 40.0
 
+    def test_to_score_optional_returns_none_for_missing_or_invalid(self):
+        assert _to_score_optional(None) is None
+        assert _to_score_optional("") is None
+        assert _to_score_optional("N/A") is None
+        assert _to_score_optional({}) is None
+        assert _to_score_optional(True) is None
+        assert _to_score_optional(85) == 85.0
+        assert _to_score_optional("92.5%") == 92.5
+
 
 class TestToStrList:
     """Boundary and type tests for the _to_str_list helper."""
@@ -185,9 +199,22 @@ class TestToStrList:
         assert _to_str_list(raw) == expected
 
     def test_to_str_list_filters_non_string_elements(self):
-        raw = ["Python", 123, None, {"key": "val"}, True, 45.6, "Docker"]
+        raw = ["Python", 123, None, {"key": 999}, True, 45.6, "Docker"]
         expected = ["Python", "Docker"]
         assert _to_str_list(raw) == expected
+
+    def test_to_str_list_extracts_strings_from_dict_elements(self):
+        raw = [
+            {"suggestion": "  Quantify impact with metrics  "},
+            {"text": "Highlight FastAPI experience"},
+            {"custom_field": "Include system design examples"},
+            {"empty": "   "},
+        ]
+        assert _to_str_list(raw) == [
+            "Quantify impact with metrics",
+            "Highlight FastAPI experience",
+            "Include system design examples",
+        ]
 
     def test_to_str_list_supports_tuples_and_sets(self):
         tuple_input = ("  Python  ", "Docker", "")
@@ -375,3 +402,159 @@ class TestPdfTextExtraction:
     def test_extract_text_from_invalid_filepath_raises_value_error(self):
         with pytest.raises(ValueError, match="Failed to parse PDF"):
             extract_text_from_pdf("non_existent_file_path_12345.pdf")
+
+
+# ─── 4. Groq HTTP Client Retry/Backoff (respx) & Edge-Case Tests ─────────────
+
+class TestGroqRetryAndEdgeCases:
+    """Tests for _groq_generate retry/backoff behavior using respx and AI service edge cases."""
+
+    @pytest.mark.asyncio
+    async def test_groq_generate_retries_on_429_and_caps_retry_after_at_20s(self, monkeypatch):
+        import asyncio
+        import httpx
+        import respx
+        from app.core.config import settings
+
+        sleep_calls = []
+
+        async def _fake_sleep(seconds: float):
+            sleep_calls.append(seconds)
+
+        monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
+        await close_client()
+
+        url = f"{settings.GROQ_BASE_URL}/chat/completions"
+        with respx.mock(assert_all_called=True) as respx_mock:
+            route = respx_mock.post(url).mock(
+                side_effect=[
+                    httpx.Response(429, headers={"Retry-After": "120"}, json={"error": "rate_limited"}),
+                    httpx.Response(
+                        200,
+                        json={"choices": [{"message": {"content": '{"status": "ok"}'}}]},
+                    ),
+                ]
+            )
+            output = await _groq_generate("Test prompt", max_retries=2, json_mode=True)
+            assert output == '{"status": "ok"}'
+            assert route.call_count == 2
+            # Verify Retry-After: 120 was capped to 20.0 seconds
+            assert sleep_calls == [20.0]
+
+        await close_client()
+
+    @pytest.mark.asyncio
+    async def test_groq_generate_retries_on_503_and_succeeds(self, monkeypatch):
+        import asyncio
+        import httpx
+        import respx
+        from app.core.config import settings
+
+        sleep_calls = []
+
+        async def _fake_sleep(seconds: float):
+            sleep_calls.append(seconds)
+
+        monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
+        await close_client()
+
+        url = f"{settings.GROQ_BASE_URL}/chat/completions"
+        with respx.mock(assert_all_called=True) as respx_mock:
+            route = respx_mock.post(url).mock(
+                side_effect=[
+                    httpx.Response(503, json={"error": "service_unavailable"}),
+                    httpx.Response(
+                        200,
+                        json={"choices": [{"message": {"content": "Recovered response"}}]},
+                    ),
+                ]
+            )
+            output = await _groq_generate("Test prompt", max_retries=2, json_mode=False)
+            assert output == "Recovered response"
+            assert route.call_count == 2
+            assert sleep_calls == [1.0]
+
+        await close_client()
+
+    @pytest.mark.asyncio
+    async def test_groq_generate_does_not_retry_on_401_client_error(self, monkeypatch):
+        import asyncio
+        import httpx
+        import respx
+        from app.core.config import settings
+
+        sleep_calls = []
+
+        async def _fake_sleep(seconds: float):
+            sleep_calls.append(seconds)
+
+        monkeypatch.setattr(asyncio, "sleep", _fake_sleep)
+        await close_client()
+
+        url = f"{settings.GROQ_BASE_URL}/chat/completions"
+        with respx.mock(assert_all_called=True) as respx_mock:
+            route = respx_mock.post(url).mock(
+                return_value=httpx.Response(401, json={"error": "invalid_api_key"})
+            )
+            with pytest.raises(httpx.HTTPStatusError):
+                await _groq_generate("Test prompt", max_retries=2)
+            assert route.call_count == 1
+            assert sleep_calls == []
+
+        await close_client()
+
+    @pytest.mark.asyncio
+    async def test_generate_interview_questions_slices_to_num_questions_and_skips_empty(self, monkeypatch):
+        from app.services import ai_service
+
+        async def _fake_generate_json(*args, **kwargs):
+            return {
+                "questions": [
+                    {"question_text": "   ", "category": "technical"},
+                    {"question_text": "Q1 valid?", "category": "technical"},
+                    {"question_text": "Q2 valid?", "category": "behavioral"},
+                    {"question_text": "Q3 valid?", "category": "situational"},
+                    {"question_text": "Q4 excess?", "category": "technical"},
+                ]
+            }
+
+        monkeypatch.setattr(ai_service, "_generate_json", _fake_generate_json)
+        questions = await generate_interview_questions("Backend Dev", "Python FastAPI", num_questions=2)
+        assert len(questions) == 2
+        assert [q["question_text"] for q in questions] == ["Q1 valid?", "Q2 valid?"]
+        assert [q["order_index"] for q in questions] == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_generate_interview_questions_raises_on_empty_llm_output(self, monkeypatch):
+        from app.services import ai_service
+
+        async def _fake_empty_json(*args, **kwargs):
+            return {"questions": [{"question_text": "   "}]}
+
+        monkeypatch.setattr(ai_service, "_generate_json", _fake_empty_json)
+        with pytest.raises(ValueError, match="no valid interview questions"):
+            await generate_interview_questions("Backend Dev", "Python FastAPI", num_questions=3)
+
+    @pytest.mark.asyncio
+    async def test_evaluate_answer_missing_score_returns_none_instead_of_50(self, monkeypatch):
+        from app.services import ai_service
+
+        async def _fake_eval_json(*args, **kwargs):
+            return {
+                "feedback": "Good explanation of trade-offs.",
+                "strengths": [{"point": "Clear architecture overview"}],
+                "improvements": [],
+            }
+
+        monkeypatch.setattr(ai_service, "_generate_json", _fake_eval_json)
+        res = await evaluate_answer(
+            question_text="Explain caching.",
+            category="technical",
+            user_answer="I use Redis with TTL.",
+            job_title="Backend Engineer",
+            job_description="Distributed systems",
+        )
+        assert res["score"] is None
+        assert res["strengths"] == ["Clear architecture overview"]
+        assert res["improvements"] == []
+

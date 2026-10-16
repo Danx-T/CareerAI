@@ -8,6 +8,7 @@ from app.db.database import get_db
 from app.models.user import User
 from app.schemas.user import UserCreate, UserResponse, Token
 from app.core.security import (
+    DUMMY_PASSWORD_HASH,
     get_password_hash_async,
     verify_password_async,
     create_access_token,
@@ -52,7 +53,9 @@ async def login(
     normalized_email = form_data.username.strip().lower()
     result = await db.execute(select(User).where(User.email == normalized_email))
     user = result.scalar_one_or_none()
-    if not user or not await verify_password_async(form_data.password, user.hashed_password):
+    target_hash = user.hashed_password if user is not None else DUMMY_PASSWORD_HASH
+    password_valid = await verify_password_async(form_data.password, target_hash)
+    if not user or not password_valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",

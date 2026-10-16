@@ -5,10 +5,9 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.135.3-009688.svg)](https://fastapi.tiangolo.com/)
 [![React 19](https://img.shields.io/badge/React-19.2.4-61DAFB.svg)](https://react.dev/)
 [![Groq Cloud](https://img.shields.io/badge/Groq_Cloud-llama--3.3--70b--versatile-F55036.svg)](https://groq.com/)
-[![Tests](https://img.shields.io/badge/tests-98%20passed-success.svg)](https://pytest.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg)](https://www.docker.com/)
 
-CareerAI is an enterprise-grade full-stack career preparation platform. It leverages high-throughput cloud LLM inference to tailor CVs to specific job descriptions and conducts rigorous, multi-category mock interviews with real-time answer evaluations, detailed scoring, and executive performance reporting.
+CareerAI is a full-stack career preparation web application. It uses cloud LLM inference (Groq) to tailor CVs to specific job descriptions and conducts multi-category mock interviews with post-session concurrent answer evaluation, per-question scoring, and session performance reports.
 
 ---
 
@@ -27,65 +26,64 @@ CareerAI is an enterprise-grade full-stack career preparation platform. It lever
   - [Creating an Administrator Account](#3-creating-an-administrator-account)
 - [Automated Testing](#automated-testing)
 - [Docker Deployment](#docker-deployment)
+- [Known Limitations](#known-limitations)
 - [Project Layout](#project-layout)
 
 ---
 
 ## Platform Overview
 
-CareerAI bridges the gap between job seekers and competitive hiring processes:
-- **CV Optimization Engine**: Upload your PDF CV, target a specific job title and job description, and receive an ATS-optimized CV rewrite alongside quantitative match scoring, missing keyword analysis, and actionable refinement recommendations.
-- **Interactive Mock Interview Coach**: Generate role-specific interview questions categorized across behavioral, technical, and situational competencies. Practice under simulated interview conditions with autosaved responses and concurrent AI answer evaluation.
-- **Executive Performance Reports**: Receive holistic interview breakdowns with category scores, synthesized top candidate strengths, targeted areas for improvement, and model answer guidance hints.
-- **Administrative Suite**: Role-Based Access Control (RBAC) enabling administrators to inspect platform usage metrics, manage user access states, promote administrators, and audit interview sessions.
+CareerAI helps candidates prepare for technical and behavioral hiring processes:
+- **CV Optimization Engine**: Upload a PDF CV, provide a target job title and job description, and receive a tailored CV rewrite alongside a match score, missing keyword analysis, and actionable refinement recommendations.
+- **Interactive Mock Interview Coach**: Generate role-specific interview questions categorized across behavioral, technical, and situational topics. Save answers at your own pace during the session and submit when ready for batch AI evaluation.
+- **Session Performance Reports**: Receive post-session interview breakdowns with category score averages, top candidate strengths, areas for improvement, and model answer hints.
+- **Administrative Dashboard**: Role-Based Access Control (RBAC) enabling administrators to view platform usage statistics, manage user active/admin states, and inspect or remove interview sessions.
 
 ---
 
 ## Target Use Cases
 
-1. **Job Seekers & Software Engineers**: Tailor resumes to beat Applicant Tracking Systems (ATS) and practice challenging technical and behavioral interview scenarios.
-2. **Career Coaches & Mentors**: Guide candidates with structured performance reports, identifying concrete gaps in candidate responses.
-3. **Bootcamps & Educational Institutions**: Provide students with on-demand, automated interview preparation and resume alignment tools.
-4. **Hiring Teams**: Benchmark job description expectations against candidate experience profiles.
+1. **Job Seekers & Software Engineers**: Tailor resume phrasing and structure to specific job descriptions and practice technical and behavioral interview questions.
+2. **Career Coaches & Mentors**: Review structured practice session reports with candidates to identify gaps in interview responses.
+3. **Bootcamps & University Career Centers**: Provide students with self-service resume review and mock interview practice.
 
 ---
 
 ## Architectural Highlights
 
-### 1. Zero-Retention In-Memory PDF Extraction
+### 1. Stream-Based PDF Text Extraction (No Permanent File Storage)
 - Powered by **PyMuPDF (`pymupdf.open(stream=content, filetype="pdf")`)**.
-- Incoming PDF files are processed purely in RAM buffers through FastAPI upload streams without writing any temporary files or permanent artifacts to disk.
-- Automatically strips page separator artifacts to supply clean contextual text to the language model.
-- Automatically rejects scanned/image-only PDFs lacking extractable text, protecting LLM token windows.
+- Uploaded PDFs are read with a bounded size check (`MAX_FILE_SIZE_MB`) and parsed directly from the byte buffer without saving uploaded files to an application uploads directory. *(Note: during multipart request parsing, Starlette's `UploadFile` uses a `SpooledTemporaryFile` that keeps uploads up to 1 MB in RAM and spools larger uploads up to the size limit to OS temporary storage before cleanup.)*
+- Joins multi-page text cleanly without injecting page separator markers into the LLM prompt.
+- Rejects scanned/image-only PDFs that contain no extractable text with HTTP 422.
 
-### 2. High-Throughput Cloud LLM Integration (Groq Cloud)
-- Standardized on Groq Cloud running **`llama-3.3-70b-versatile`** over OpenAI-compatible endpoints.
-- Reuses a persistent connection pool via singleton `httpx.AsyncClient(timeout=120.0)` for minimal connection overhead and graceful shutdown handling.
-- Native JSON mode (`response_format={"type": "json_object"}`) enforced with multi-stage fallback sanitizers to eliminate markdown fences and conversational preambles.
-- Robust exponential backoff retry mechanism handling HTTP 429 rate limits and 5xx transient server errors with dynamic `Retry-After` header extraction, while failing immediately on non-retryable 4xx client errors.
+### 2. Cloud LLM Integration (Groq Cloud)
+- Standardized on Groq Cloud running **`llama-3.3-70b-versatile`** via OpenAI-compatible chat completion endpoints.
+- Reuses a shared `httpx.AsyncClient(timeout=120.0)` connection pool across requests and closes it cleanly during FastAPI lifespan shutdown.
+- Uses JSON mode (`response_format={"type": "json_object"}`) paired with fallback parsers and output sanitizers to strip markdown code fences and conversational preambles.
+- Implements exponential backoff retry for HTTP 429 rate limits and 5xx server errors (honoring `Retry-After` headers capped at 20 seconds), while failing immediately on non-retryable 4xx client errors.
 
-### 3. Concurrent Answer Evaluation Engine
-- Slashing report generation latency by **~75–80%** compared to sequential processing.
-- Utilizes `asyncio.Semaphore(3)` combined with `asyncio.gather` to evaluate multiple interview questions in parallel while respecting provider rate and token limits.
-- Fault-tolerant error isolation ensures that individual question evaluation failures do not abort the overall interview session report.
+### 3. Concurrent Post-Session Answer Evaluation
+- Evaluates up to 3 answers concurrently when a session is completed using `asyncio.Semaphore(3)` and `asyncio.gather`, reducing total evaluation time compared to sequential requests while respecting API rate limits.
+- Commits per-question evaluations to the database before generating the overall session summary report, ensuring that evaluated answers are preserved if the final report call fails and avoiding duplicate token usage on retry.
+- Isolates individual question evaluation errors so a single failed question does not abort the rest of the session.
 
-### 4. Asynchronous Security & Role-Based Access Control (RBAC)
+### 4. Asynchronous Auth & Role-Based Access Control (RBAC)
 - Built on **FastAPI** and **SQLAlchemy 2.0 (async)** with **aiosqlite**.
-- Enforces SQLite foreign keys on every database connection via an engine sync event listener (`PRAGMA foreign_keys=ON`), guaranteeing complete cascade deletions (`cascade="all, delete-orphan"`).
-- OAuth2 Bearer authentication using **PyJWT** (`HS256`, 24-hour expiration).
-- Non-blocking CPU-bound password hashing and verification using **bcrypt** executed in thread pools via `asyncio.to_thread`.
-- Password boundary enforcement strictly limits passwords to 72 UTF-8 bytes to prevent bcrypt truncation vulnerabilities.
-- Proactive account deactivation protection rejecting deactivated accounts across both login attempts and authenticated request flows.
+- Enforces SQLite foreign keys on every database connection via an engine event listener (`PRAGMA foreign_keys=ON`), ensuring `cascade="all, delete-orphan"` relationships clean up child records on deletion.
+- OAuth2 Bearer authentication using **PyJWT** (`HS256`, 24-hour token expiration) and a `SECRET_KEY` length guard ($\ge$ 32 characters enforced at startup).
+- Offloads CPU-bound **bcrypt** hashing and verification to a thread pool via `asyncio.to_thread`, equalizes login verification timing for non-existent emails using a precomputed dummy hash, and enforces bcrypt's 72-byte UTF-8 password limit.
+- Blocks deactivated accounts (`is_active=False`) on both login and authenticated API requests.
 
-### 5. Production-Grade Testing & CI/CD Pipeline
-- **98 automated Pytest tests** verifying JSON parsing fallbacks, boundary clamping, in-memory PDF extraction, authentication, CV workflows, cascade deletions, and concurrent interview evaluation.
-- Deterministic test isolation using monkeypatched mock AI fixtures, requiring no live Groq API keys during test execution.
-- Automated dual-job **GitHub Actions CI/CD pipeline** (`.github/workflows/ci.yml`) testing Python 3.11 (Pyflakes linting + Pytest suite) and Node 20 (ESLint 9 + Vite 8 production build) on every push and pull request.
+### 5. Automated Testing & CI Pipeline
+- **108 automated Pytest tests** covering JSON parsing fallbacks, score/list sanitizers, `respx`-mocked HTTP retry/backoff behavior, PyMuPDF extraction, authentication, admin RBAC & CLI provisioning, CV workflows, cascade deletions, and interview evaluation flows.
+- Deterministic test execution using monkeypatched mock AI fixtures and `respx`, requiring no live Groq API keys in CI or local test runs.
+- Dual-job **GitHub Actions CI pipeline** (`.github/workflows/ci.yml`) running Python 3.11 (`pyflakes` + `pytest`) and Node 20 (`npm run lint` + `npm run build`) on pushes and pull requests.
 
-### 6. Hardened Multi-Stage Containerization
-- **Backend**: Python 3.11-slim container running as an unprivileged non-root user (`app`), pre-configured directory permissions for SQLite persistent storage, and self-contained PyMuPDF binary wheels.
-- **Frontend**: Two-stage Docker build utilizing `node:20-alpine` for production bundling and `nginx:alpine` for static delivery.
-- **Nginx Reverse Proxy**: Hardened configuration featuring 10MB client upload capacity (`client_max_body_size 10m;`), 120-second backend timeout (`proxy_read_timeout 120s;`), SPA client routing fallback (`try_files $uri $uri/ /index.html;`), and strict HTTP security headers (`X-Frame-Options DENY`, `X-Content-Type-Options nosniff`, `CSP`, and `Referrer-Policy`).
+### 6. Multi-Stage Docker & Nginx Configuration
+- **Backend**: `python:3.11-slim` container running as a non-root user (`app`) with a dedicated `/app/data` volume for the SQLite database.
+- **Frontend**: Two-stage Docker build using `node:20-alpine` for bundling and `nginx:alpine` for static file serving and `/api/` reverse proxying.
+- **Nginx Reverse Proxy**: Configured with `client_max_body_size 10m;`, `proxy_read_timeout 120s;`, SPA fallback routing (`try_files $uri $uri/ /index.html;`), and standard HTTP security headers (`X-Frame-Options DENY`, `X-Content-Type-Options nosniff`, `Content-Security-Policy`, and `Referrer-Policy`).
 
 ---
 
@@ -98,22 +96,22 @@ flowchart TD
     end
 
     subgraph ReverseProxy ["Edge & Reverse Proxy (Port 3000 / 80)"]
-        NginxProxy["Hardened Nginx Reverse Proxy\n- Security Headers (CSP, X-Frame-Options)\n- 10MB Body Limit & 120s Read Timeout\n- SPA Route Fallback"]
+        NginxProxy["Nginx Reverse Proxy\n- Security Headers (CSP, X-Frame-Options)\n- 10MB Body Limit & 120s Read Timeout\n- SPA Route Fallback"]
     end
 
     subgraph FrontendApp ["Frontend Application"]
-        ReactApp["React 19 SPA (Vite 8 + Tailwind CSS)\n- React Router 7 Declarative Navigation\n- AuthContext (JWT & 401 Loop Guard)\n- ScoreGauge, CVComparison, Auto-save"]
+        ReactApp["React 19 SPA (Vite 8 + Tailwind CSS)\n- React Router 7 Navigation\n- AuthContext (JWT & 401 Loop Guard)\n- ScoreGauge, CVComparison, Answer Saving"]
     end
 
     subgraph BackendApp ["FastAPI Backend (Port 8000)"]
-        FastAPIServer["FastAPI ASGI Server (Uvicorn 0.44)\n- Lifespan & Structured Logging\n- Origin-Restricted CORS Middleware"]
+        FastAPIServer["FastAPI ASGI Server (Uvicorn)\n- Lifespan Client Cleanup & Python Logging\n- Origin-Restricted CORS Middleware"]
         SecurityModule["Security & Auth Subsystem\n- PyJWT Bearer Verification\n- Thread-Offloaded Bcrypt (asyncio.to_thread)\n- RBAC (Admin / Active User Guards)"]
-        PDFProcessor["In-Memory PDF Extractor\n- PyMuPDF (RAM-only Stream Buffer)\n- Zero Disk Writes / Page Marker Scrubbing"]
-        EvalEngine["Interview Concurrency Engine\n- asyncio.Semaphore(3) & asyncio.gather\n- Parallel Evaluation (~75% Latency Cut)"]
+        PDFProcessor["Stream PDF Extractor\n- PyMuPDF (Byte Stream Parsing)\n- No Permanent File Storage"]
+        EvalEngine["Interview Evaluation Runner\n- asyncio.Semaphore(3) & asyncio.gather\n- Up to 3 Concurrent Evaluations"]
     end
 
     subgraph ExternalCloud ["External AI Services"]
-        GroqCloud["Groq Cloud API\n- Model: llama-3.3-70b-versatile\n- httpx.AsyncClient Connection Pool\n- Native JSON Mode & Exponential Backoff"]
+        GroqCloud["Groq Cloud API\n- Model: llama-3.3-70b-versatile\n- httpx.AsyncClient Connection Pool\n- JSON Mode & Capped Exponential Backoff"]
     end
 
     subgraph DataPersistence ["Persistence Layer"]
@@ -135,13 +133,13 @@ flowchart TD
 
 ## Comprehensive API Reference
 
-The backend exposes 19 application endpoints across 4 functional domains, plus service health monitoring endpoints:
+The backend exposes 19 application endpoints across 4 functional domains, plus 2 system health endpoints:
 
 ### Authentication (`/api/auth`)
 
 | Method | Endpoint | Description | Request Payload / Params | Auth / Role | Status Codes |
 |---|---|---|---|---|---|
-| `POST` | `/api/auth/register` | Register a new user account | **JSON**: `{ email, full_name, password }` (password max 72 bytes) | Public | `201 Created`<br>`400 Bad Request`<br>`422 Unprocessable` |
+| `POST` | `/api/auth/register` | Register a new user account | **JSON**: `{ email, full_name, password }` (password 8 chars to 72 UTF-8 bytes) | Public | `201 Created`<br>`400 Bad Request`<br>`422 Unprocessable` |
 | `POST` | `/api/auth/login` | Authenticate and obtain JWT Bearer access token | **Form**: `username` (email), `password` | Public | `200 OK`<br>`401 Unauthorized`<br>`403 Forbidden` |
 | `GET` | `/api/auth/me` | Retrieve profile of currently authenticated user | None | Bearer Token (Active User) | `200 OK`<br>`401 Unauthorized`<br>`403 Forbidden` |
 
@@ -149,8 +147,8 @@ The backend exposes 19 application endpoints across 4 functional domains, plus s
 
 | Method | Endpoint | Description | Request Payload / Params | Auth / Role | Status Codes |
 |---|---|---|---|---|---|
-| `POST` | `/api/cv/upload` | In-memory zero-retention PDF text extraction | **Multipart**: `file: UploadFile` (PDF format, $\le$ 10MB) | Bearer Token (Active User) | `200 OK`<br>`400 Bad Request`<br>`401 Unauthorized`<br>`422 Unprocessable` |
-| `POST` | `/api/cv/optimize` | AI-powered CV optimization & persistence to history | **JSON**: `{ cv_text, job_title, job_description }` | Bearer Token (Active User) | `200 OK`<br>`400 Bad Request`<br>`401 Unauthorized`<br>`422 Unprocessable`<br>`503 Service Unavailable` |
+| `POST` | `/api/cv/upload` | Extract text from an uploaded PDF without permanent file storage | **Multipart**: `file: UploadFile` (PDF format, $\le$ 10MB) | Bearer Token (Active User) | `200 OK`<br>`400 Bad Request`<br>`401 Unauthorized`<br>`422 Unprocessable` |
+| `POST` | `/api/cv/optimize` | Run AI CV optimization & save result to history | **JSON**: `{ cv_text, job_title, job_description }` | Bearer Token (Active User) | `200 OK`<br>`400 Bad Request`<br>`401 Unauthorized`<br>`422 Unprocessable`<br>`503 Service Unavailable` |
 | `GET` | `/api/cv/history` | List current user's CV optimization history (newest first) | None | Bearer Token (Active User) | `200 OK`<br>`401 Unauthorized` |
 | `DELETE` | `/api/cv/history/{id}` | Delete a CV optimization record | **Path**: `id: int` | Bearer Token (Owner) | `204 No Content`<br>`401 Unauthorized`<br>`404 Not Found` |
 
@@ -160,19 +158,19 @@ The backend exposes 19 application endpoints across 4 functional domains, plus s
 |---|---|---|---|---|---|
 | `POST` | `/api/interview/start` | Initialize session and generate role-specific questions | **JSON**: `{ job_title, job_description, num_questions }` (1–20) | Bearer Token (Active User) | `201 Created`<br>`401 Unauthorized`<br>`422 Unprocessable`<br>`503 Service Unavailable` |
 | `GET` | `/api/interview/sessions` | List current user's interview sessions | None | Bearer Token (Active User) | `200 OK`<br>`401 Unauthorized` |
-| `GET` | `/api/interview/{id}` | Retrieve session details, questions, and submitted answers | **Path**: `id: int` | Bearer Token (Owner) | `200 OK`<br>`401 Unauthorized`<br>`404 Not Found` |
-| `PATCH` | `/api/interview/{id}/answer/{qid}` | Save or update candidate answer without invoking AI | **Path**: `id: int`, `qid: int`<br>**JSON**: `{ answer: str }` | Bearer Token (Owner) | `200 OK`<br>`401 Unauthorized`<br>`404 Not Found`<br>`409 Conflict` |
-| `POST` | `/api/interview/{id}/complete` | Concurrently evaluate all answers & generate session report | **Path**: `id: int` | Bearer Token (Owner) | `200 OK`<br>`401 Unauthorized`<br>`404 Not Found`<br>`409 Conflict`<br>`503 Service Unavailable` |
+| `GET` | `/api/interview/{id}` | Retrieve session details, questions, and saved answers | **Path**: `id: int` | Bearer Token (Owner) | `200 OK`<br>`401 Unauthorized`<br>`404 Not Found` |
+| `PATCH` | `/api/interview/{id}/answer/{qid}` | Save or clear a candidate answer (no AI call) | **Path**: `id: int`, `qid: int`<br>**JSON**: `{ answer: str }` | Bearer Token (Owner) | `200 OK`<br>`401 Unauthorized`<br>`404 Not Found`<br>`409 Conflict` |
+| `POST` | `/api/interview/{id}/complete` | Concurrently evaluate saved answers & generate session report | **Path**: `id: int` | Bearer Token (Owner) | `200 OK`<br>`401 Unauthorized`<br>`404 Not Found`<br>`409 Conflict`<br>`503 Service Unavailable` |
 
 ### Administration (`/api/admin`)
 
 | Method | Endpoint | Description | Request Payload / Params | Auth / Role | Status Codes |
 |---|---|---|---|---|---|
-| `GET` | `/api/admin/stats` | Aggregate platform statistics and performance metrics | None | Bearer Token (`is_admin=True`) | `200 OK`<br>`401 Unauthorized`<br>`403 Forbidden` |
+| `GET` | `/api/admin/stats` | Aggregate platform statistics and session metrics | None | Bearer Token (`is_admin=True`) | `200 OK`<br>`401 Unauthorized`<br>`403 Forbidden` |
 | `GET` | `/api/admin/users` | List all registered users (newest first) | None | Bearer Token (`is_admin=True`) | `200 OK`<br>`401 Unauthorized`<br>`403 Forbidden` |
 | `PATCH` | `/api/admin/users/{id}/toggle-active` | Toggle active/deactivated status for a user | **Path**: `id: int` | Bearer Token (`is_admin=True`) | `200 OK`<br>`400 Bad Request`<br>`401 Unauthorized`<br>`403 Forbidden`<br>`404 Not Found` |
 | `PATCH` | `/api/admin/users/{id}/toggle-admin` | Toggle administrator privileges for a user | **Path**: `id: int` | Bearer Token (`is_admin=True`) | `200 OK`<br>`400 Bad Request`<br>`401 Unauthorized`<br>`403 Forbidden`<br>`404 Not Found` |
-| `DELETE` | `/api/admin/users/{id}` | Permanently delete user & cascade delete all user data | **Path**: `id: int` | Bearer Token (`is_admin=True`) | `204 No Content`<br>`400 Bad Request`<br>`401 Unauthorized`<br>`403 Forbidden`<br>`404 Not Found` |
+| `DELETE` | `/api/admin/users/{id}` | Delete user & cascade delete all user data | **Path**: `id: int` | Bearer Token (`is_admin=True`) | `204 No Content`<br>`400 Bad Request`<br>`401 Unauthorized`<br>`403 Forbidden`<br>`404 Not Found` |
 | `GET` | `/api/admin/sessions` | List all interview sessions across all users | None | Bearer Token (`is_admin=True`) | `200 OK`<br>`401 Unauthorized`<br>`403 Forbidden` |
 | `DELETE` | `/api/admin/sessions/{id}` | Delete an interview session & cascade delete questions | **Path**: `id: int` | Bearer Token (`is_admin=True`) | `204 No Content`<br>`401 Unauthorized`<br>`403 Forbidden`<br>`404 Not Found` |
 
@@ -187,20 +185,21 @@ The backend exposes 19 application endpoints across 4 functional domains, plus s
 
 ## Environment Variables
 
-Configure application settings by copying `.env.example` to `.env` in the root or `backend/` directory:
+Configure application settings by copying `.env.example` to `.env` in the repository root (or inside `backend/`):
 
 | Variable | Type | Default Value | Required | Description |
 |---|---|---|:---:|---|
-| `SECRET_KEY` | `str` | `""` | **YES** | 64+ character cryptographic secret for signing JWT tokens. The application halts on startup if missing. |
+| `SECRET_KEY` | `str` | `""` | **YES** | Secret key for signing JWT tokens (minimum 32 characters; 64+ recommended). Startup fails if missing or shorter than 32 characters. |
 | `GROQ_API_KEY` | `str` | `""` | **YES** | Groq Cloud API authentication key (obtain from [console.groq.com/keys](https://console.groq.com/keys)). |
-| `GROQ_MODEL` | `str` | `"llama-3.3-70b-versatile"` | No | Groq LLM model identifier. Standardized on `llama-3.3-70b-versatile`. |
-| `GROQ_BASE_URL` | `str` | `"https://api.groq.com/openai/v1"` | No | OpenAI-compatible endpoint URL for Groq API calls. |
-| `DATABASE_URL` | `str` | `"sqlite+aiosqlite:///./app.db"` | No | Async database connection string. In Docker Compose: `sqlite+aiosqlite:////app/data/app.db`. |
+| `GROQ_MODEL` | `str` | `"llama-3.3-70b-versatile"` | No | Groq LLM model identifier. |
+| `GROQ_BASE_URL` | `str` | `"https://api.groq.com/openai/v1"` | No | OpenAI-compatible base URL for Groq API requests. |
+| `DATABASE_URL` | `str` | `"sqlite+aiosqlite:///./app.db"` | No | Async SQLAlchemy database URL. In Docker Compose: `sqlite+aiosqlite:////app/data/app.db`. |
 | `FRONTEND_URL` | `str` | `"http://localhost:3000"` | No | Allowed origin for Cross-Origin Resource Sharing (CORS). |
-| `MAX_FILE_SIZE_MB` | `int` | `10` | No | Maximum permitted PDF file upload size in megabytes. |
-| `ALGORITHM` | `str` | `"HS256"` | No | JWT digital signature algorithm. |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `int` | `1440` (24h) | No | Validity duration for generated access tokens. |
-| `VITE_API_URL` | `str` | `""` | No | Base API URL for frontend client. Leave empty to use same-origin proxy (Vite dev proxy or Nginx). |
+| `DEBUG` | `bool` | `False` | No | Enables interactive Swagger/OpenAPI docs at `/docs` and `/redoc` when set to `true` (set to `true` in `.env.example` for local development). |
+| `MAX_FILE_SIZE_MB` | `int` | `10` | No | Maximum permitted PDF upload size in megabytes. |
+| `ALGORITHM` | `str` | `"HS256"` | No | JWT signature algorithm. |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `int` | `1440` (24h) | No | Access token expiration window in minutes. |
+| `VITE_API_URL` | `str` | `""` | No | Frontend API base URL. Leave empty to use same-origin proxy (Vite dev proxy or Nginx). |
 
 ---
 
@@ -232,17 +231,18 @@ source venv/bin/activate
 # Install runtime and development dependencies
 pip install -r requirements.txt -r requirements-dev.txt
 
-# Configure environment variables (from project root)
+# Copy environment template from repository root
 cp ../.env.example .env
 # Windows: copy ..\.env.example .env
 ```
 
-Edit `.env` and provide your secrets:
+Edit `.env` and set your keys:
 ```env
-SECRET_KEY=your-64-character-random-secret-key-here
-GROQ_API_KEY=gsk_your_actual_groq_api_key_here
+SECRET_KEY=your-random-secret-key-at-least-32-characters-long
+GROQ_API_KEY=your_groq_api_key_here
+DEBUG=true
 ```
-> Tip: Generate a secure `SECRET_KEY` using:
+> Tip: Generate a strong `SECRET_KEY` using:
 > `python -c "import secrets; print(secrets.token_urlsafe(64))"`
 
 Start the FastAPI development server:
@@ -250,7 +250,7 @@ Start the FastAPI development server:
 uvicorn app.main:app --reload --port 8000
 ```
 - **Backend API URL**: `http://localhost:8000`
-- **Interactive OpenAPI Documentation**: `http://localhost:8000/docs`
+- **Interactive OpenAPI Documentation**: `http://localhost:8000/docs` *(available when `DEBUG=true` in `.env`)*
 
 ---
 
@@ -266,84 +266,91 @@ npm install
 
 # (Optional) Configure environment file
 cp .env.example .env
-# VITE_API_URL can remain empty to utilize Vite's internal reverse proxy
+# Leave VITE_API_URL empty to use Vite's local /api reverse proxy
 
-# Launch Vite development server
+# Start Vite development server
 npm run dev
 ```
 - **Frontend Application URL**: `http://localhost:3000`
-- The Vite development server automatically proxies `/api/*` requests to `http://localhost:8000`.
+- The Vite dev server automatically proxies `/api/*` requests to `http://localhost:8000`.
 
 ---
 
 ### 3. Creating an Administrator Account
 
-CareerAI includes a dedicated CLI command for bootstrapping administrator credentials:
+Use the standalone CLI script to create a new administrator account or promote an existing user:
 
 ```bash
-# Run from the backend directory:
+# Run from the backend directory (interactive prompt):
 python -m app.scripts.create_admin
 
-# Or provide credentials directly via arguments:
-python -m app.scripts.create_admin --email admin@example.com --password "SecureAdminPass123" --full-name "Lead Admin"
+# Or pass arguments directly:
+python -m app.scripts.create_admin --email admin@example.com --password "SecureAdminPass123" --full-name "Admin User"
 ```
 
-The script automatically:
-1. Normalizes the email address and validates the bcrypt 72-byte password length boundary.
-2. Initializes database tables if not already present.
-3. Promotes existing users to `is_admin = True` or creates a new active administrator account.
+The script:
+1. Normalizes the email address and validates password length (8 characters minimum, 72 UTF-8 bytes maximum).
+2. Initializes database tables if they do not exist yet.
+3. Creates a new admin user or promotes an existing user with that email to `is_admin = True` and `is_active = True`.
 
 ---
 
 ## Automated Testing
 
-CareerAI features a comprehensive Pytest test suite covering 100% of critical paths with deterministic mock AI fixtures:
+Run the backend test suite and linter from the `backend/` directory:
 
 ```bash
-# Run from the backend directory:
-pytest -v tests/
-
-# Or run with pyflakes code quality check:
+# Run lint check and test suite
 python -m pyflakes app/ tests/
 pytest -v tests/
 ```
 
-### Test Suite Summary
-- **Total Tests**: **98 passing tests**
-- **Test Modules**:
-  - `tests/test_ai_helpers.py` (26 tests): JSON mode parsing fallbacks, score clamping (0–100), string sanitizers, category normalizers, and PyMuPDF in-memory PDF extraction.
-  - `tests/test_auth.py` (9 tests): Registration, duplicate email race handling, bcrypt 72-byte boundaries, invalid login rejection, and deactivated account gating.
-  - `tests/test_cv.py` (14 tests): PDF magic byte verification, zero-retention memory processing, optimization schemas, user data isolation, and cascading foreign-key deletion.
-  - `tests/test_interview.py` (49 tests): Question generation, answer saving, answer clearing, `asyncio.Semaphore(3)` concurrent evaluation, conflict guards (`409 Conflict`), and session isolation.
+### Test Suite Breakdown
+- **Total Automated Tests**: **108 tests**
+- **Test Files**:
+  - `tests/test_ai_helpers.py` (55 tests): JSON extraction fallbacks, score clamping (`_to_score` & `_to_score_optional`), list/dict string sanitization (`_to_str_list`), category normalization, CV text cleanup, PyMuPDF stream extraction, `respx`-mocked HTTP retry/backoff (`429` with `Retry-After` cap, `503` retry, `401` immediate failure), and question/evaluation edge cases.
+  - `tests/test_auth.py` (11 tests): Registration, email normalization, duplicate email rejection, bcrypt 72-byte password boundary checks, login verification, deactivated account blocking, `create_admin` CLI script, and `/api/admin/*` RBAC endpoints.
+  - `tests/test_cv.py` (20 tests): Bounded upload size checks, PDF magic byte validation, corrupt/empty PDF rejection, CV optimization persistence, input length validation, user history isolation, and SQLite foreign-key cascade deletion.
+  - `tests/test_interview.py` (22 tests): Session creation, question count slicing, answer saving/clearing, partial evaluation preservation when report generation fails, conflict guards (`409 Conflict` on completed sessions), and cross-user session isolation.
 
 ---
 
 ## Docker Deployment
 
-CareerAI is fully containerized with Docker and Docker Compose for production deployments:
+Build and run the full stack with Docker Compose v2:
 
 ```bash
-# 1. Ensure .env file is configured at repository root
+# 1. Copy and edit .env at repository root
 cp .env.example .env
 
 # 2. Build and start containers in detached mode
-docker-compose up --build -d
+docker compose up --build -d
 
-# 3. View running container logs
-docker-compose logs -f
+# 3. Follow container logs
+docker compose logs -f
 ```
 
 ### Container Services
-- **Backend Service (`backend`)**: Runs FastAPI inside a hardened `python:3.11-slim` container as non-root user `app` on internal port `8000`. Persistent database storage is mounted at `/app/data` via the `db_data` volume.
-- **Frontend Service (`frontend`)**: Multi-stage build producing an optimized React 19 bundle served by hardened `nginx:alpine` on host port `3000` (container port `80`).
+- **Backend (`backend`)**: Runs FastAPI inside `python:3.11-slim` as non-root user `app` on internal port `8000`, storing the SQLite database in the `db_data` Docker volume (`/app/data/app.db`).
+- **Frontend (`frontend`)**: Builds the React SPA with `node:20-alpine` and serves static assets plus `/api/` reverse proxying via `nginx:alpine` on host port `3000` (container port `80`).
 - **Accessing the Stack**:
   - Web Application: `http://localhost:3000`
-  - Backend API: `http://localhost:3000/api/` (reverse-proxied via Nginx)
+  - Proxied Backend API: `http://localhost:3000/api/`
 
 To stop and remove containers:
 ```bash
-docker-compose down
+docker compose down
 ```
+
+---
+
+## Known Limitations
+
+- **Non-deterministic LLM outputs**: CV match scores, rewritten CVs, interview questions, and answer evaluations are generated by an external LLM (`llama-3.3-70b-versatile`) and can vary across runs for identical inputs.
+- **Prompt character truncation**: To keep prompts within model context and latency budgets, CV text is truncated at `12,000` characters and job descriptions at `6,000` characters before being sent to Groq.
+- **Text-based PDFs only (no OCR)**: PDF extraction relies on embedded text streams via PyMuPDF. Scanned or image-only PDFs without an embedded text layer are rejected with HTTP 422.
+- **Single-instance SQLite persistence**: SQLite (`aiosqlite`) is intended for local development, portfolio demonstrations, and single-container deployments. Multi-replica horizontal scaling would require migrating to PostgreSQL.
+- **No built-in rate limiting**: Application-level request rate limiting is not configured by default. Publicly exposed deployments should configure rate limiting at the reverse proxy (e.g., Nginx `limit_req_zone`) or API gateway layer.
 
 ---
 
@@ -353,22 +360,23 @@ docker-compose down
 CareerAI/
 ├── .github/
 │   └── workflows/
-│       └── ci.yml               # GitHub Actions dual-job CI workflow (Python & Node)
+│       └── ci.yml               # GitHub Actions CI workflow (Python & Node)
 ├── backend/
 │   ├── app/
 │   │   ├── core/
-│   │   │   ├── config.py        # Pydantic Settings v2 configuration
+│   │   │   ├── config.py        # Pydantic Settings v2 configuration & startup checks
 │   │   │   └── security.py      # PyJWT auth, thread-offloaded bcrypt, user dependencies
 │   │   ├── db/
-│   │   │   └── database.py      # SQLAlchemy 2.0 async engine & PRAGMA foreign_keys listener
+│   │   │   ├── database.py      # SQLAlchemy 2.0 async engine & PRAGMA foreign_keys listener
+│   │   │   └── init_db.py       # Database table initialization helper
 │   │   ├── models/
 │   │   │   ├── cv.py            # CVOptimization ORM model
 │   │   │   ├── interview.py     # InterviewSession & InterviewQuestion models
 │   │   │   └── user.py          # User model with cascade relationships
 │   │   ├── routers/
-│   │   │   ├── admin.py         # Platform metrics & user/session administration
+│   │   │   ├── admin.py         # Platform stats & user/session administration
 │   │   │   ├── auth.py          # Registration, login, and user profile routes
-│   │   │   ├── cv.py            # Zero-retention PDF upload & CV optimization
+│   │   │   ├── cv.py            # Stream PDF upload & CV optimization routes
 │   │   │   └── interview.py     # Mock interview generation & concurrent evaluation
 │   │   ├── schemas/
 │   │   │   ├── cv.py            # Pydantic validation schemas for CV workflows
@@ -378,16 +386,16 @@ CareerAI/
 │   │   │   └── create_admin.py  # Standalone CLI admin provisioning script
 │   │   ├── services/
 │   │   │   ├── ai_service.py    # Groq Cloud LLM client, JSON mode, backoff retry
-│   │   │   └── pdf_service.py   # PyMuPDF in-memory text extraction (RAM-only)
+│   │   │   └── pdf_service.py   # PyMuPDF stream text extraction
 │   │   └── main.py              # FastAPI app initialization, lifespan, and CORS
-│   ├── tests/                   # 98 automated Pytest tests
+│   ├── tests/                   # 108 automated Pytest tests
 │   │   ├── conftest.py          # Test database lifecycle & deterministic mock AI fixtures
-│   │   ├── test_ai_helpers.py   # JSON parsing, sanitization & PDF extraction tests
-│   │   ├── test_auth.py         # Authentication & RBAC security tests
+│   │   ├── test_ai_helpers.py   # JSON parsing, sanitizers, respx retry & PDF tests
+│   │   ├── test_auth.py         # Authentication, create_admin CLI & admin RBAC tests
 │   │   ├── test_cv.py           # CV upload, optimization & cascade deletion tests
-│   │   └── test_interview.py    # Interview session, answer & concurrency tests
-│   ├── Dockerfile               # Hardened non-root Python 3.11 container
-│   ├── pytest.ini              # Pytest configuration
+│   │   └── test_interview.py    # Interview session, answer & evaluation tests
+│   ├── Dockerfile               # Non-root Python 3.11 container
+│   ├── pytest.ini               # Pytest configuration
 │   ├── requirements.txt         # Production runtime dependencies
 │   └── requirements-dev.txt     # Test & development dependencies
 ├── frontend/
@@ -396,7 +404,7 @@ CareerAI/
 │   │   ├── context/             # AuthContext with 401 loop guard
 │   │   ├── pages/               # Application views (Landing, Dashboard, CV*, Interview*, Admin)
 │   │   ├── services/            # Axios API client (api.js)
-│   │   ├── App.jsx              # React Router 7 declarative routing & layout
+│   │   ├── App.jsx              # React Router 7 routing & layout
 │   │   └── main.jsx             # React 19 entry point
 │   ├── .env.example             # Frontend environment template
 │   ├── nginx.conf               # Production Nginx reverse proxy & security headers
@@ -404,7 +412,8 @@ CareerAI/
 │   ├── package.json             # Frontend dependencies & scripts
 │   ├── tailwind.config.js       # Tailwind CSS configuration
 │   └── vite.config.js           # Vite build configuration & dev proxy
-├── docker-compose.yml           # Multi-container orchestration specification
+├── .dockerignore                # Docker build context exclusions
 ├── .env.example                 # Root environment variables template
-└── README.md                    # Root architecture & deployment documentation
+├── docker-compose.yml           # Multi-container orchestration specification
+└── README.md                    # Project documentation
 ```

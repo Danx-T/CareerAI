@@ -240,3 +240,112 @@ async def test_deactivated_user_protection(
     )
     assert login_res_deactivated.status_code == 403
     assert login_res_deactivated.json()["detail"] == "Account is deactivated"
+
+
+@pytest.mark.asyncio
+async def test_create_admin_script_create_and_upgrade(db_session: AsyncSession):
+    """Test standalone create_admin script validation, creation, and existing user promotion."""
+    from app.scripts.create_admin import validate_credentials, create_or_upgrade_admin
+
+    with pytest.raises(ValueError, match="Invalid email"):
+        validate_credentials("invalid-email", "ValidPass123!")
+
+    with pytest.raises(ValueError, match="at least 8 characters"):
+        validate_credentials("admin@example.com", "short")
+
+    with pytest.raises(ValueError, match="at most 72 bytes"):
+        validate_credentials("admin@example.com", "A" * 73)
+
+    # Create new admin user
+    admin_user, created = await create_or_upgrade_admin(
+        email="  CLI_Admin@Example.com ",
+        password="StrongAdminPassword123!",
+        full_name="CLI Admin",
+        session=db_session,
+    )
+    assert created is True
+    assert admin_user.email == "cli_admin@example.com"
+    assert admin_user.is_admin is True
+    assert admin_user.is_active is True
+
+    # Demote/deactivate and verify upgrade path promotes back to active admin
+    admin_user.is_admin = False
+    admin_user.is_active = False
+    await db_session.commit()
+
+    upgraded_user, created_again = await create_or_upgrade_admin(
+        email="cli_admin@example.com",
+        password="StrongAdminPassword123!",
+        session=db_session,
+    )
+    assert created_again is False
+    assert upgraded_user.id == admin_user.id
+    assert upgraded_user.is_admin is True
+    assert upgraded_user.is_active is True
+
+
+@pytest.mark.asyncio
+async def test_admin_endpoints_rbac_and_operations(
+    client: AsyncClient,
+    test_user,
+    test_admin_user,
+    auth_headers: dict,
+    admin_auth_headers: dict,
+):
+    """Test /api/admin/* endpoints enforce RBAC and properly manage users and stats."""
+    # Non-admin user receives 403 Forbidden
+    forbidden_res = await client.get("/api/admin/stats", headers=auth_headers)
+    assert forbidden_res.status_code == 403
+
+    # Admin can fetch stats
+    stats_res = await client.get("/api/admin/stats", headers=admin_auth_headers)
+    assert stats_res.status_code == 200
+    stats = stats_res.json()
+    assert stats["total_users"] >= 2
+    assert stats["admin_users"] >= 1
+
+    # Admin can list users
+    users_res = await client.get("/api/admin/users", headers=admin_auth_headers)
+    assert users_res.status_code == 200
+    assert len(users_res.json()) >= 2
+
+    # Admin cannot deactivate, demote, or delete themselves
+    self_deact = await client.patch(
+        f"/api/admin/users/{test_admin_user.id}/toggle-active",
+        headers=admin_auth_headers,
+    )
+    assert self_deact.status_code == 400
+
+    self_demote = await client.patch(
+        f"/api/admin/users/{test_admin_user.id}/toggle-admin",
+        headers=admin_auth_headers,
+    )
+    assert self_demote.status_code == 400
+
+    self_delete = await client.delete(
+        f"/api/admin/users/{test_admin_user.id}",
+        headers=admin_auth_headers,
+    )
+    assert self_delete.status_code == 400
+
+    # Admin can toggle active and admin status on another user, then delete them
+    toggle_act = await client.patch(
+        f"/api/admin/users/{test_user.id}/toggle-active",
+        headers=admin_auth_headers,
+    )
+    assert toggle_act.status_code == 200
+    assert toggle_act.json()["is_active"] is False
+
+    toggle_adm = await client.patch(
+        f"/api/admin/users/{test_user.id}/toggle-admin",
+        headers=admin_auth_headers,
+    )
+    assert toggle_adm.status_code == 200
+    assert toggle_adm.json()["is_admin"] is True
+
+    del_res = await client.delete(
+        f"/api/admin/users/{test_user.id}",
+        headers=admin_auth_headers,
+    )
+    assert del_res.status_code == 204
+

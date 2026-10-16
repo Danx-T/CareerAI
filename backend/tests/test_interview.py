@@ -639,7 +639,7 @@ async def test_complete_interview_graceful_degradation_on_partial_eval_failure(
 async def test_complete_interview_ai_report_failure_returns_503(
     client: httpx.AsyncClient, auth_headers: dict, monkeypatch
 ):
-    """When report generation fails, returns HTTP 503."""
+    """When report generation fails, returns HTTP 503 while preserving evaluated question scores."""
     start_resp = await client.post(
         "/api/interview/start",
         json={
@@ -649,7 +649,27 @@ async def test_complete_interview_ai_report_failure_returns_503(
         },
         headers=auth_headers,
     )
-    session_id = start_resp.json()["id"]
+    session_data = start_resp.json()
+    session_id = session_data["id"]
+    q1_id = session_data["questions"][0]["id"]
+
+    await client.patch(
+        f"/api/interview/{session_id}/answer/{q1_id}",
+        json={"answer": "I prioritize features using RICE scoring and customer discovery."},
+        headers=auth_headers,
+    )
+
+    eval_call_count = 0
+    original_eval = ai_service.evaluate_answer
+
+    async def _counting_eval(*args, **kwargs):
+        nonlocal eval_call_count
+        eval_call_count += 1
+        return await original_eval(*args, **kwargs)
+
+    monkeypatch.setattr(ai_service, "evaluate_answer", _counting_eval)
+
+    original_report = ai_service.generate_interview_report
 
     async def _failing_report(*args, **kwargs):
         raise RuntimeError("Report generation service down")
@@ -663,6 +683,21 @@ async def test_complete_interview_ai_report_failure_returns_503(
 
     assert complete_resp.status_code == 503
     assert "temporarily unavailable" in complete_resp.json().get("detail", "")
+    assert eval_call_count == 1
+
+    # Verify question evaluation was persisted and not rolled back
+    get_resp = await client.get(f"/api/interview/{session_id}", headers=auth_headers)
+    q1_after_fail = next(q for q in get_resp.json()["questions"] if q["id"] == q1_id)
+    assert q1_after_fail["score"] == 85.0
+
+    # Restore report service and retry /complete: already-scored question must not be re-evaluated
+    monkeypatch.setattr(ai_service, "generate_interview_report", original_report)
+    retry_resp = await client.post(
+        f"/api/interview/{session_id}/complete",
+        headers=auth_headers,
+    )
+    assert retry_resp.status_code == 200
+    assert eval_call_count == 1
 
 
 # ─────────────────────────────────────────────────────────────────────────────

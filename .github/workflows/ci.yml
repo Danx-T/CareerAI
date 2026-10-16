@@ -17,7 +17,7 @@ jobs:
         working-directory: backend
     env:
       SECRET_KEY: ci-test-secret-key-minimum-32-chars-long-for-jwt-signing
-      GROQ_API_KEY: gsk_mock_api_key_for_ci_test_pipeline
+      GROQ_API_KEY: test_dummy_groq_api_key_for_ci
       DATABASE_URL: sqlite+aiosqlite:///./test.db
 
     steps:

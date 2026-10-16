@@ -40,8 +40,15 @@ settings = Settings()
 # ─── Startup validation ──────────────────────────────────────────────────────
 def _validate_settings():
     errors = []
-    if not settings.SECRET_KEY or settings.SECRET_KEY == "your-super-secret-key-change-this-in-production":
-        errors.append("SECRET_KEY is not set. Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\"")
+    if (
+        not settings.SECRET_KEY
+        or settings.SECRET_KEY == "your-super-secret-key-change-this-in-production"
+        or len(settings.SECRET_KEY) < 32
+    ):
+        errors.append(
+            "SECRET_KEY must be at least 32 characters long. Generate one with: "
+            "python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+        )
     if not settings.GROQ_API_KEY:
         errors.append("GROQ_API_KEY is not set. Get one from https://console.groq.com/keys")
     if errors:

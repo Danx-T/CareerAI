@@ -31,11 +31,9 @@ async def upload_cv(
             detail="Only PDF files are supported",
         )
 
-    # Read entire file into memory buffer
-    content = await file.read()
-
-    # Check file size against MAX_FILE_SIZE_MB
+    # Read up to max_bytes + 1 so oversized uploads are rejected without reading unbounded bytes
     max_bytes = settings.MAX_FILE_SIZE_MB * 1024 * 1024
+    content = await file.read(max_bytes + 1)
     if len(content) > max_bytes:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
