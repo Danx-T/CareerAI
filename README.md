@@ -1,6 +1,6 @@
 # CareerAI — AI-Powered CV Optimizer & Mock Interview Platform
 
-[![CI Pipeline](https://github.com/danyal/career-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/danyal/career-ai/actions/workflows/ci.yml)
+[![CI Pipeline](https://github.com/Danx-T/CareerAI/actions/workflows/ci.yml/badge.svg)](https://github.com/Danx-T/CareerAI/actions/workflows/ci.yml)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.135.3-009688.svg)](https://fastapi.tiangolo.com/)
 [![React 19](https://img.shields.io/badge/React-19.2.4-61DAFB.svg)](https://react.dev/)
