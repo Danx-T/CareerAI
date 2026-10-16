@@ -232,9 +232,9 @@ source venv/bin/activate
 # Install runtime and development dependencies
 pip install -r requirements.txt -r requirements-dev.txt
 
-# Configure environment variables
-cp .env.example .env
-# Note: On Windows, use: copy ..\.env.example .env
+# Configure environment variables (from project root)
+cp ../.env.example .env
+# Windows: copy ..\.env.example .env
 ```
 
 Edit `.env` and provide your secrets:
@@ -398,6 +398,7 @@ CareerAI/
 │   │   ├── services/            # Axios API client (api.js)
 │   │   ├── App.jsx              # React Router 7 declarative routing & layout
 │   │   └── main.jsx             # React 19 entry point
+│   ├── .env.example             # Frontend environment template
 │   ├── nginx.conf               # Production Nginx reverse proxy & security headers
 │   ├── Dockerfile               # Multi-stage production container build
 │   ├── package.json             # Frontend dependencies & scripts
