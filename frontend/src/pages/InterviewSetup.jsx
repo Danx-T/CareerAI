@@ -96,7 +96,7 @@ export default function InterviewSetup() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-ink-900">Interview Coach</h1>
-          <p className="text-ink-500 mt-1 text-sm">Practice with AI-generated questions and get instant feedback on every answer.</p>
+          <p className="text-ink-500 mt-1 text-sm">Practice with AI-generated questions and get detailed answer evaluation & scoring.</p>
         </div>
         {!showForm && (
           <button onClick={() => setShowForm(true)} className="btn-primary flex-shrink-0">

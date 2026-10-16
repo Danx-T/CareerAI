@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { interviewAPI } from '../services/api';
 import ScoreGauge from '../components/ScoreGauge';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { ArrowLeft, Trophy, BarChart3, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Trophy, BarChart3, MessageSquare, CheckCircle, TrendingUp, Lightbulb } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 function CategoryBar({ name, score, delay }) {
@@ -30,6 +30,9 @@ function QuestionFeedbackRow({ q, index }) {
   const scoreColor = q.score >= 75 ? 'text-teal-600' : q.score >= 50 ? 'text-amber-600' : 'text-red-500';
   const scoreBg    = q.score >= 75 ? 'bg-teal-50 border-teal-200' : q.score >= 50 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
 
+  const hasStrengths = Array.isArray(q.strengths) && q.strengths.length > 0;
+  const hasImprovements = Array.isArray(q.improvements) && q.improvements.length > 0;
+
   return (
     <div className={`border rounded-xl overflow-hidden transition-all duration-300 ${open ? 'border-teal-200 shadow-teal' : 'border-ink-100'} bg-white animate-slide-up`}
       style={{ animationDelay: `${index * 0.04}s` }}>
@@ -45,6 +48,9 @@ function QuestionFeedbackRow({ q, index }) {
           <div className="flex items-center gap-2 mt-1.5">
             <span className="badge badge-ink text-xs capitalize">{q.category}</span>
             {!q.user_answer && <span className="badge badge-yellow text-xs">Not answered</span>}
+            {q.score == null && q.user_answer && (
+              <span className="badge badge-ink text-xs">Not scored</span>
+            )}
           </div>
         </div>
         {q.score != null && (
@@ -68,6 +74,54 @@ function QuestionFeedbackRow({ q, index }) {
               <p className="text-ink-700 text-sm leading-relaxed">{q.ai_feedback}</p>
             </div>
           )}
+
+          {/* Question-level Strengths and Improvements */}
+          {(hasStrengths || hasImprovements) && (
+            <div className={`grid gap-3 ${hasStrengths && hasImprovements ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+              {hasStrengths && (
+                <div className="bg-teal-50/60 border border-teal-100 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-teal-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <CheckCircle className="w-3.5 h-3.5 text-teal-600 flex-shrink-0" /> Strengths
+                  </p>
+                  <ul className="space-y-1.5">
+                    {q.strengths.map((s, i) => (
+                      <li key={i} className="text-ink-700 text-xs leading-relaxed flex items-start gap-2">
+                        <span className="text-teal-600 font-bold flex-shrink-0">✓</span>
+                        <span>{s}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {hasImprovements && (
+                <div className="bg-amber-50/60 border border-amber-100 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <TrendingUp className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" /> Areas for Improvement
+                  </p>
+                  <ul className="space-y-1.5">
+                    {q.improvements.map((imp, i) => (
+                      <li key={i} className="text-ink-700 text-xs leading-relaxed flex items-start gap-2">
+                        <span className="text-amber-600 font-bold flex-shrink-0">→</span>
+                        <span>{imp}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Question-level Model Answer Guidance */}
+          {q.model_answer_hint && (
+            <div className="bg-ink-50/80 border border-ink-100 rounded-lg p-3">
+              <p className="text-xs font-semibold text-ink-600 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                <Lightbulb className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" /> Model Answer Guidance
+              </p>
+              <p className="text-ink-700 text-xs leading-relaxed">
+                {q.model_answer_hint}
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -89,7 +143,14 @@ export default function InterviewReport() {
   if (loading) return <div className="flex justify-center py-20"><LoadingSpinner size="lg" text="Loading report…" /></div>;
   if (!report) return <div className="text-center py-20 text-ink-500">Report not found.</div>;
 
-  const { overall_score, summary_feedback, questions, job_title } = report;
+  const {
+    overall_score,
+    summary_feedback,
+    questions = [],
+    job_title,
+    top_strengths = [],
+    top_improvements = [],
+  } = report;
   const scoredQs = questions.filter(q => q.score != null);
 
   // Category scores
@@ -136,6 +197,49 @@ export default function InterviewReport() {
           </p>
         </div>
       </div>
+
+      {/* Top Strengths & Areas for Improvement */}
+      {((top_strengths && top_strengths.length > 0) || (top_improvements && top_improvements.length > 0)) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 animate-slide-up stagger-2">
+          {top_strengths && top_strengths.length > 0 && (
+            <div className={`card space-y-3 ${(!top_improvements || top_improvements.length === 0) ? 'md:col-span-2' : ''}`}>
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-teal-100 flex items-center justify-center">
+                  <CheckCircle className="w-4 h-4 text-teal-600" />
+                </div>
+                <h2 className="font-semibold text-ink-900">Top Strengths</h2>
+              </div>
+              <ul className="space-y-2">
+                {top_strengths.map((str, i) => (
+                  <li key={i} className="flex items-start gap-2.5 text-sm text-ink-700 leading-relaxed">
+                    <span className="text-teal-600 font-bold flex-shrink-0 mt-0.5">✓</span>
+                    <span>{str}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {top_improvements && top_improvements.length > 0 && (
+            <div className={`card space-y-3 ${(!top_strengths || top_strengths.length === 0) ? 'md:col-span-2' : ''}`}>
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center">
+                  <TrendingUp className="w-4 h-4 text-amber-600" />
+                </div>
+                <h2 className="font-semibold text-ink-900">Areas for Improvement</h2>
+              </div>
+              <ul className="space-y-2">
+                {top_improvements.map((imp, i) => (
+                  <li key={i} className="flex items-start gap-2.5 text-sm text-ink-700 leading-relaxed">
+                    <span className="text-amber-600 font-bold flex-shrink-0 mt-0.5">→</span>
+                    <span>{imp}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Category breakdown */}
       {Object.keys(catMap).length > 0 && (

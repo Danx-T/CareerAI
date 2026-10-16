@@ -99,7 +99,7 @@ const features = [
   {
     icon: MessageSquare,
     title: 'Interview Coach',
-    desc: 'Practice with AI-generated role-specific questions and get instant, detailed feedback on every answer.',
+    desc: 'Practice with AI-generated role-specific questions and get comprehensive AI evaluation and scoring.',
     tealIcon: false,
   },
   {
@@ -113,7 +113,7 @@ const features = [
 const benefits = [
   'Tailored to the exact job description',
   'Role-specific interview questions',
-  'Instant AI feedback on every answer',
+  'Detailed AI feedback on every answer',
   'Comprehensive performance reports',
   'Missing keyword detection',
   'Section-by-section scoring',

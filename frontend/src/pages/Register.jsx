@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 const perks = [
   'AI-powered CV optimization',
   'Role-specific interview questions',
-  'Instant answer feedback',
+  'Detailed answer evaluation & scoring',
   'Free to get started',
 ];
 

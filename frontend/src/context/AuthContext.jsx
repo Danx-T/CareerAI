@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authAPI } from '../services/api';
 
 const AuthContext = createContext(null);
@@ -8,7 +8,13 @@ export function AuthProvider({ children }) {
     const stored = localStorage.getItem('user');
     return stored ? JSON.parse(stored) : null;
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => Boolean(localStorage.getItem('token')));
+
+  const logout = useCallback(() => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setUser(null);
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -17,10 +23,8 @@ export function AuthProvider({ children }) {
         .then(({ data }) => setUser(data))
         .catch(() => logout())
         .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
     }
-  }, []);
+  }, [logout]);
 
   const login = async (email, password) => {
     const { data } = await authAPI.login(email, password);
@@ -35,12 +39,6 @@ export function AuthProvider({ children }) {
     return data;
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setUser(null);
-  };
-
   return (
     <AuthContext.Provider value={{ user, login, register, logout, loading }}>
       {children}
@@ -48,6 +46,7 @@ export function AuthProvider({ children }) {
   );
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used inside AuthProvider');

@@ -6,7 +6,7 @@ export default function FileUpload({ onFileSelect, accept = '.pdf', maxSizeMB = 
   const [selectedFile, setSelectedFile] = useState(null);
   const [error, setError] = useState('');
 
-  const validate = (file) => {
+  const validate = useCallback((file) => {
     if (!file.name.toLowerCase().endsWith('.pdf')) {
       setError('Only PDF files are supported.');
       return false;
@@ -16,14 +16,14 @@ export default function FileUpload({ onFileSelect, accept = '.pdf', maxSizeMB = 
       return false;
     }
     return true;
-  };
+  }, [maxSizeMB]);
 
   const handleFile = useCallback((file) => {
     setError('');
     if (!validate(file)) return;
     setSelectedFile(file);
     onFileSelect?.(file);
-  }, [onFileSelect]);
+  }, [onFileSelect, validate]);
 
   const onDrop = (e) => {
     e.preventDefault();
