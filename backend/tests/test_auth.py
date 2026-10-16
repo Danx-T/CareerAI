@@ -116,8 +116,19 @@ async def test_login_incorrect_password(client: AsyncClient, user_factory):
 
 
 @pytest.mark.asyncio
-async def test_login_nonexistent_user(client: AsyncClient):
-    """Test that login with a non-existent email returns HTTP 401 Unauthorized."""
+async def test_login_nonexistent_user(client: AsyncClient, monkeypatch):
+    """Test that login with a non-existent email runs dummy hash verification and returns HTTP 401."""
+    from app.routers import auth as auth_router
+    from app.core.security import DUMMY_PASSWORD_HASH, verify_password_async
+
+    called_hashes = []
+
+    async def _tracked_verify(plain: str, hashed: str) -> bool:
+        called_hashes.append(hashed)
+        return await verify_password_async(plain, hashed)
+
+    monkeypatch.setattr(auth_router, "verify_password_async", _tracked_verify)
+
     response = await client.post(
         "/api/auth/login",
         data={
@@ -127,6 +138,7 @@ async def test_login_nonexistent_user(client: AsyncClient):
     )
     assert response.status_code == 401
     assert response.json()["detail"] == "Incorrect email or password"
+    assert called_hashes == [DUMMY_PASSWORD_HASH]
 
 
 @pytest.mark.asyncio

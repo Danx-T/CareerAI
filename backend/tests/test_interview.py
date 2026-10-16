@@ -652,10 +652,16 @@ async def test_complete_interview_ai_report_failure_returns_503(
     session_data = start_resp.json()
     session_id = session_data["id"]
     q1_id = session_data["questions"][0]["id"]
+    q2_id = session_data["questions"][1]["id"]
 
     await client.patch(
         f"/api/interview/{session_id}/answer/{q1_id}",
         json={"answer": "I prioritize features using RICE scoring and customer discovery."},
+        headers=auth_headers,
+    )
+    await client.patch(
+        f"/api/interview/{session_id}/answer/{q2_id}",
+        json={"answer": "Initial draft answer for question 2."},
         headers=auth_headers,
     )
 
@@ -683,21 +689,34 @@ async def test_complete_interview_ai_report_failure_returns_503(
 
     assert complete_resp.status_code == 503
     assert "temporarily unavailable" in complete_resp.json().get("detail", "")
-    assert eval_call_count == 1
+    assert eval_call_count == 2
 
-    # Verify question evaluation was persisted and not rolled back
+    # Verify both question evaluations were persisted and not rolled back
     get_resp = await client.get(f"/api/interview/{session_id}", headers=auth_headers)
-    q1_after_fail = next(q for q in get_resp.json()["questions"] if q["id"] == q1_id)
-    assert q1_after_fail["score"] == 85.0
+    questions_after_fail = {q["id"]: q for q in get_resp.json()["questions"]}
+    assert questions_after_fail[q1_id]["score"] == 85.0
+    assert questions_after_fail[q2_id]["score"] == 85.0
 
-    # Restore report service and retry /complete: already-scored question must not be re-evaluated
+    # Modify q2's answer -> must reset q2.score to None while keeping q1.score intact
+    await client.patch(
+        f"/api/interview/{session_id}/answer/{q2_id}",
+        json={"answer": "Updated and refined answer for question 2."},
+        headers=auth_headers,
+    )
+    get_after_edit = await client.get(f"/api/interview/{session_id}", headers=auth_headers)
+    questions_after_edit = {q["id"]: q for q in get_after_edit.json()["questions"]}
+    assert questions_after_edit[q1_id]["score"] == 85.0
+    assert questions_after_edit[q2_id]["score"] is None
+    assert questions_after_edit[q2_id]["ai_feedback"] is None
+
+    # Restore report service and retry /complete: q1 is skipped, only edited q2 is re-evaluated
     monkeypatch.setattr(ai_service, "generate_interview_report", original_report)
     retry_resp = await client.post(
         f"/api/interview/{session_id}/complete",
         headers=auth_headers,
     )
     assert retry_resp.status_code == 200
-    assert eval_call_count == 1
+    assert eval_call_count == 3
 
 
 # ─────────────────────────────────────────────────────────────────────────────

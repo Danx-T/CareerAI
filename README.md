@@ -195,7 +195,7 @@ Configure application settings by copying `.env.example` to `.env` in the reposi
 | `GROQ_BASE_URL` | `str` | `"https://api.groq.com/openai/v1"` | No | OpenAI-compatible base URL for Groq API requests. |
 | `DATABASE_URL` | `str` | `"sqlite+aiosqlite:///./app.db"` | No | Async SQLAlchemy database URL. In Docker Compose: `sqlite+aiosqlite:////app/data/app.db`. |
 | `FRONTEND_URL` | `str` | `"http://localhost:3000"` | No | Allowed origin for Cross-Origin Resource Sharing (CORS). |
-| `DEBUG` | `bool` | `False` | No | Enables interactive Swagger/OpenAPI docs at `/docs` and `/redoc` when set to `true` (set to `true` in `.env.example` for local development). |
+| `DEBUG` | `bool` | `False` | No | Enables interactive Swagger/OpenAPI docs at `/docs` and `/redoc` when set to `true` (keep `false` in production). |
 | `MAX_FILE_SIZE_MB` | `int` | `10` | No | Maximum permitted PDF upload size in megabytes. |
 | `ALGORITHM` | `str` | `"HS256"` | No | JWT signature algorithm. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `int` | `1440` (24h) | No | Access token expiration window in minutes. |
@@ -394,6 +394,7 @@ CareerAI/
 │   │   ├── test_auth.py         # Authentication, create_admin CLI & admin RBAC tests
 │   │   ├── test_cv.py           # CV upload, optimization & cascade deletion tests
 │   │   └── test_interview.py    # Interview session, answer & evaluation tests
+│   ├── .dockerignore            # Backend Docker build context exclusions
 │   ├── Dockerfile               # Non-root Python 3.11 container
 │   ├── pytest.ini               # Pytest configuration
 │   ├── requirements.txt         # Production runtime dependencies
@@ -406,13 +407,13 @@ CareerAI/
 │   │   ├── services/            # Axios API client (api.js)
 │   │   ├── App.jsx              # React Router 7 routing & layout
 │   │   └── main.jsx             # React 19 entry point
+│   ├── .dockerignore            # Frontend Docker build context exclusions (node_modules, dist)
 │   ├── .env.example             # Frontend environment template
 │   ├── nginx.conf               # Production Nginx reverse proxy & security headers
 │   ├── Dockerfile               # Multi-stage production container build
 │   ├── package.json             # Frontend dependencies & scripts
 │   ├── tailwind.config.js       # Tailwind CSS configuration
 │   └── vite.config.js           # Vite build configuration & dev proxy
-├── .dockerignore                # Docker build context exclusions
 ├── .env.example                 # Root environment variables template
 ├── docker-compose.yml           # Multi-container orchestration specification
 └── README.md                    # Project documentation
