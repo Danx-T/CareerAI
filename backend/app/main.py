@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -5,16 +6,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.db.init_db import init_db
 from app.routers import auth, cv, interview, admin
+from app.services import ai_service
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    force=True,
+)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await init_db()
-    print(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} started")
+    logger.info("Application started: %s v%s", settings.APP_NAME, settings.APP_VERSION)
     yield
     # Shutdown
-    print("👋 Shutting down...")
+    await ai_service.close_client()
+    logger.info("Application shutdown completed")
 
 
 app = FastAPI(
@@ -28,9 +38,15 @@ app = FastAPI(
 )
 
 # CORS
+cors_origins = [settings.FRONTEND_URL] if settings.FRONTEND_URL else ["*"]
+if settings.DEBUG and cors_origins != ["*"]:
+    for dev_origin in ("http://localhost:3000", "http://localhost:5173"):
+        if dev_origin not in cors_origins:
+            cors_origins.append(dev_origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "http://localhost:3000", "http://localhost:5173"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

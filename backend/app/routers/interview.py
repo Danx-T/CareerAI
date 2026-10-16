@@ -1,4 +1,6 @@
-from datetime import datetime
+import asyncio
+import logging
+from datetime import datetime, timezone
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +21,8 @@ from app.schemas.interview import (
 from app.core.security import get_current_user
 from app.services import ai_service
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/interview", tags=["Interview"])
 
 
@@ -35,7 +39,8 @@ async def start_interview(
             job_description=request.job_description,
             num_questions=request.num_questions,
         )
-    except Exception:
+    except Exception as exc:
+        logger.error("AI question generation failed: %s", str(exc), exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="AI service is temporarily unavailable. Please try again later.",
@@ -79,6 +84,8 @@ async def start_interview(
         created_at=session.created_at,
         completed_at=session.completed_at,
         summary_feedback=session.summary_feedback,
+        top_strengths=session.top_strengths or [],
+        top_improvements=session.top_improvements or [],
         questions=[QuestionResponse.model_validate(q) for q in question_objs],
     )
 
@@ -129,6 +136,8 @@ async def get_session(
         created_at=session.created_at,
         completed_at=session.completed_at,
         summary_feedback=session.summary_feedback,
+        top_strengths=session.top_strengths or [],
+        top_improvements=session.top_improvements or [],
         questions=[QuestionResponse.model_validate(q) for q in questions],
     )
 
@@ -152,6 +161,12 @@ async def save_answer(
     if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
+    if session.status == "completed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Session already completed",
+        )
+
     q_result = await db.execute(
         select(InterviewQuestion).where(
             InterviewQuestion.id == question_id,
@@ -162,12 +177,14 @@ async def save_answer(
     if not question:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found")
 
-    was_new = not bool(question.user_answer)
-    question.user_answer = answer_data.answer
+    is_clearing = not bool(answer_data.answer.strip()) if answer_data.answer else True
+    had_answer = bool(question.user_answer and question.user_answer.strip())
+    question.user_answer = answer_data.answer.strip() if not is_clearing else None
 
-    # Update answered count
-    if was_new:
-        session.answered_questions = min(session.answered_questions + 1, session.total_questions)
+    if is_clearing and had_answer:
+        session.answered_questions = max(0, session.answered_questions - 1)
+    elif not is_clearing and not had_answer:
+        session.answered_questions = min(session.total_questions, session.answered_questions + 1)
 
     await db.flush()
 
@@ -195,6 +212,12 @@ async def complete_session(
     if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
+    if session.status == "completed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Session already completed",
+        )
+
     q_result = await db.execute(
         select(InterviewQuestion)
         .where(InterviewQuestion.session_id == session_id)
@@ -202,26 +225,53 @@ async def complete_session(
     )
     questions = q_result.scalars().all()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
-    # ── Step 1: Evaluate each answered question sequentially ──
-    for question in questions:
-        if not question.user_answer:
-            continue  # skip unanswered questions
-        try:
-            feedback = await ai_service.evaluate_answer(
-                question_text=question.question_text,
-                category=question.category,
-                user_answer=question.user_answer,
-                job_title=session.job_title,
-                job_description=session.job_description,
-            )
-            question.ai_feedback = feedback.get("feedback", "")
-            question.score = feedback.get("score", 0)
-        except Exception:
-            question.ai_feedback = "Could not evaluate this answer."
-            question.score = 50.0
-        question.answered_at = now
+    # ── Step 1: Evaluate all answered questions concurrently ──
+    sem = asyncio.Semaphore(3)
+
+    async def _evaluate_single_question(question: InterviewQuestion):
+        async with sem:
+            try:
+                feedback = await ai_service.evaluate_answer(
+                    question_text=question.question_text,
+                    category=question.category,
+                    user_answer=question.user_answer,
+                    job_title=session.job_title,
+                    job_description=session.job_description,
+                )
+                question.ai_feedback = feedback.get("feedback", "")
+                question.score = float(feedback.get("score", 0.0))
+                question.strengths = (
+                    feedback.get("strengths")
+                    if isinstance(feedback.get("strengths"), list)
+                    else []
+                )
+                question.improvements = (
+                    feedback.get("improvements")
+                    if isinstance(feedback.get("improvements"), list)
+                    else []
+                )
+                question.model_answer_hint = feedback.get("model_answer_hint")
+            except Exception as exc:
+                logger.error(
+                    "AI answer evaluation failed for question %s: %s",
+                    question.id,
+                    str(exc),
+                    exc_info=True,
+                )
+                question.ai_feedback = "Could not evaluate this answer."
+                question.score = None
+                question.strengths = []
+                question.improvements = []
+                question.model_answer_hint = None
+            question.answered_at = now
+
+    answered_questions = [
+        q for q in questions if q.user_answer and q.user_answer.strip()
+    ]
+    if answered_questions:
+        await asyncio.gather(*(_evaluate_single_question(q) for q in answered_questions))
 
     await db.flush()
 
@@ -231,7 +281,7 @@ async def complete_session(
             "question_text": q.question_text,
             "category": q.category,
             "user_answer": q.user_answer or "",
-            "score": q.score or 0,
+            "score": q.score,
         }
         for q in questions
     ]
@@ -242,7 +292,13 @@ async def complete_session(
             job_title=session.job_title,
             questions_with_answers=qa_data,
         )
-    except Exception:
+    except Exception as exc:
+        logger.error(
+            "AI interview report generation failed for session %s: %s",
+            session.id,
+            str(exc),
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="AI service is temporarily unavailable. Please try again later.",
@@ -250,13 +306,23 @@ async def complete_session(
 
     # ── Step 4: Persist final session results ──
     scored = [q.score for q in questions if q.score is not None]
-    overall_score = sum(scored) / len(scored) if scored else 0.0
+    overall_score = round(sum(scored) / len(scored), 1) if scored else 0.0
 
     session.overall_score = overall_score
     session.summary_feedback = report.get("summary_feedback", "")
     session.status = "completed"
     session.completed_at = now
-    session.answered_questions = len([q for q in questions if q.user_answer])
+    session.top_strengths = (
+        report.get("top_strengths")
+        if isinstance(report.get("top_strengths"), list)
+        else []
+    )
+    session.top_improvements = (
+        report.get("top_improvements")
+        if isinstance(report.get("top_improvements"), list)
+        else []
+    )
+    session.answered_questions = len(answered_questions)
     await db.flush()
 
     return InterviewReportResponse(
@@ -267,6 +333,6 @@ async def complete_session(
         questions=[QuestionResponse.model_validate(q) for q in questions],
         summary_feedback=report.get("summary_feedback", ""),
         category_scores=report.get("category_scores", {}),
-        top_strengths=report.get("top_strengths", []),
-        top_improvements=report.get("top_improvements", []),
+        top_strengths=session.top_strengths or [],
+        top_improvements=session.top_improvements or [],
     )
