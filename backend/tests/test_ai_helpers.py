@@ -216,6 +216,16 @@ class TestToStrList:
             "Include system design examples",
         ]
 
+    def test_to_str_list_unescapes_xml_entities(self):
+        raw = [
+            "Improved latency by &gt;50% and reduced errors to &lt;1%",
+            {"suggestion": "Target team size &gt; 10 engineers"},
+        ]
+        assert _to_str_list(raw) == [
+            "Improved latency by >50% and reduced errors to <1%",
+            "Target team size > 10 engineers",
+        ]
+
     def test_to_str_list_supports_tuples_and_sets(self):
         tuple_input = ("  Python  ", "Docker", "")
         assert _to_str_list(tuple_input) == ["Python", "Docker"]
