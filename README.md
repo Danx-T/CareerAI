@@ -76,9 +76,9 @@ CareerAI helps candidates prepare for technical and behavioral hiring processes:
 - Blocks deactivated accounts (`is_active=False`) on both login and authenticated API requests.
 
 ### 5. Automated Testing & CI Pipeline
-- **108 automated Pytest tests** covering JSON parsing fallbacks, score/list sanitizers, `respx`-mocked HTTP retry/backoff behavior, PyMuPDF extraction, authentication, admin RBAC & CLI provisioning, CV workflows, cascade deletions, and interview evaluation flows.
+- **108 backend Pytest tests + 7 frontend automated tests** covering JSON parsing fallbacks, score/list sanitizers, `respx`-mocked HTTP retry/backoff behavior, PyMuPDF extraction, authentication, admin RBAC & CLI provisioning, CV workflows, cascade deletions, interview evaluation flows, Axios 401 loop-guard interceptors, and React component rendering.
 - Deterministic test execution using monkeypatched mock AI fixtures and `respx`, requiring no live Groq API keys in CI or local test runs.
-- Dual-job **GitHub Actions CI pipeline** (`.github/workflows/ci.yml`) running Python 3.11 (`pyflakes` + `pytest`) and Node 20 (`npm run lint` + `npm run build`) on pushes and pull requests.
+- Dual-job **GitHub Actions CI pipeline** (`.github/workflows/ci.yml`) running Python 3.11 (`pyflakes` + `pytest`) and Node 20 (`npm run lint` + `npm test` + `npm run build`) on pushes and pull requests.
 
 ### 6. Multi-Stage Docker & Nginx Configuration
 - **Backend**: `python:3.11-slim` container running as a non-root user (`app`) with a dedicated `/app/data` volume for the SQLite database.
@@ -297,21 +297,26 @@ The script:
 
 ## Automated Testing
 
-Run the backend test suite and linter from the `backend/` directory:
+Run the backend and frontend test suites locally:
 
 ```bash
-# Run lint check and test suite
+# Backend lint & test suite (from backend/ directory)
 python -m pyflakes app/ tests/
 pytest -v tests/
+
+# Frontend lint & test suite (from frontend/ directory)
+npm run lint
+npm test
 ```
 
 ### Test Suite Breakdown
-- **Total Automated Tests**: **108 tests**
-- **Test Files**:
+- **Backend Automated Tests**: **108 tests** (`pytest`)
   - `tests/test_ai_helpers.py` (55 tests): JSON extraction fallbacks, score clamping (`_to_score` & `_to_score_optional`), list/dict string sanitization (`_to_str_list`), category normalization, CV text cleanup, PyMuPDF stream extraction, `respx`-mocked HTTP retry/backoff (`429` with `Retry-After` cap, `503` retry, `401` immediate failure), and question/evaluation edge cases.
-  - `tests/test_auth.py` (11 tests): Registration, email normalization, duplicate email rejection, bcrypt 72-byte password boundary checks, login verification, deactivated account blocking, `create_admin` CLI script, and `/api/admin/*` RBAC endpoints.
+  - `tests/test_auth.py` (11 tests): Registration, email normalization, duplicate email rejection, bcrypt 72-byte password boundary checks, login verification (including dummy hash timing check), deactivated account blocking, `create_admin` CLI script, and `/api/admin/*` RBAC endpoints.
   - `tests/test_cv.py` (20 tests): Bounded upload size checks, PDF magic byte validation, corrupt/empty PDF rejection, CV optimization persistence, input length validation, user history isolation, and SQLite foreign-key cascade deletion.
-  - `tests/test_interview.py` (22 tests): Session creation, question count slicing, answer saving/clearing, partial evaluation preservation when report generation fails, conflict guards (`409 Conflict` on completed sessions), and cross-user session isolation.
+  - `tests/test_interview.py` (22 tests): Session creation, question count slicing, answer saving/clearing, partial evaluation preservation and answer edit reset when report generation fails, conflict guards (`409 Conflict` on completed sessions), and cross-user session isolation.
+- **Frontend Automated Tests**: **7 tests** (`node --test`)
+  - `tests/app.test.js` (7 tests): Axios JWT request interceptor header injection, 401 response interceptor login loop guard vs. protected route redirect, `CVComparison` placeholder and XSS HTML-escaping verification, `ScoreGauge` SVG rendering, `LoadingSpinner` rendering, and `Landing` page router links.
 
 ---
 
@@ -331,8 +336,8 @@ docker compose logs -f
 ```
 
 ### Container Services
-- **Backend (`backend`)**: Runs FastAPI inside `python:3.11-slim` as non-root user `app` on internal port `8000`, storing the SQLite database in the `db_data` Docker volume (`/app/data/app.db`).
-- **Frontend (`frontend`)**: Builds the React SPA with `node:20-alpine` and serves static assets plus `/api/` reverse proxying via `nginx:alpine` on host port `3000` (container port `80`).
+- **Backend (`backend`)**: Runs FastAPI inside `python:3.11-slim` as non-root user `app` on internal port `8000` (`expose: ["8000"]`, accessible only via the Nginx reverse proxy on the Docker network), storing the SQLite database in the `db_data` Docker volume (`/app/data/app.db`).
+- **Frontend (`frontend`)**: Builds the React SPA with `node:20-alpine` and serves static assets plus `/api/` reverse proxying via `nginx:alpine` on host port `3000` (container port `80`), including rate limiting on `/api/auth/login` (`10r/m`, `burst=5`) and strict `script-src 'self'` CSP.
 - **Accessing the Stack**:
   - Web Application: `http://localhost:3000`
   - Proxied Backend API: `http://localhost:3000/api/`
@@ -347,10 +352,10 @@ docker compose down
 ## Known Limitations
 
 - **Non-deterministic LLM outputs**: CV match scores, rewritten CVs, interview questions, and answer evaluations are generated by an external LLM (`llama-3.3-70b-versatile`) and can vary across runs for identical inputs.
-- **Prompt character truncation**: To keep prompts within model context and latency budgets, CV text is truncated at `12,000` characters and job descriptions at `6,000` characters before being sent to Groq.
+- **Input character limits**: CV text is limited to `20,000` characters and job descriptions to `10,000` characters (aligned across frontend inputs, Pydantic validation schemas, and LLM prompt builders).
 - **Text-based PDFs only (no OCR)**: PDF extraction relies on embedded text streams via PyMuPDF. Scanned or image-only PDFs without an embedded text layer are rejected with HTTP 422.
 - **Single-instance SQLite persistence**: SQLite (`aiosqlite`) is intended for local development, portfolio demonstrations, and single-container deployments. Multi-replica horizontal scaling would require migrating to PostgreSQL.
-- **No built-in rate limiting**: Application-level request rate limiting is not configured by default. Publicly exposed deployments should configure rate limiting at the reverse proxy (e.g., Nginx `limit_req_zone`) or API gateway layer.
+- **Edge-only rate limiting**: Rate limiting on `/api/auth/login` is enforced in the Nginx reverse proxy (`frontend/nginx.conf`); running the FastAPI backend directly without Nginx does not enforce application-level rate limits.
 
 ---
 
@@ -407,6 +412,8 @@ CareerAI/
 │   │   ├── services/            # Axios API client (api.js)
 │   │   ├── App.jsx              # React Router 7 routing & layout
 │   │   └── main.jsx             # React 19 entry point
+│   ├── tests/
+│   │   └── app.test.js          # Automated frontend interceptor & component tests
 │   ├── .dockerignore            # Frontend Docker build context exclusions (node_modules, dist)
 │   ├── .env.example             # Frontend environment template
 │   ├── nginx.conf               # Production Nginx reverse proxy & security headers

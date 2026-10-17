@@ -1,8 +1,8 @@
 services:
   backend:
     build: ./backend
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     environment:
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
       GROQ_API_KEY: ${GROQ_API_KEY:?set GROQ_API_KEY in .env}

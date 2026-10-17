@@ -125,7 +125,7 @@ export default function InterviewSetup() {
               <div>
                 <label className="label">Job Title *</label>
                 <input
-                  type="text" required placeholder="e.g. Frontend Developer"
+                  type="text" required maxLength={200} placeholder="e.g. Frontend Developer"
                   value={form.job_title} onChange={set('job_title')} className="input-field"
                 />
               </div>
@@ -142,7 +142,7 @@ export default function InterviewSetup() {
             <div>
               <label className="label">Job Description *</label>
               <textarea
-                rows={6} required placeholder="Paste the job description here…"
+                rows={6} required maxLength={10000} placeholder="Paste the job description here (max 10,000 characters)…"
                 value={form.job_description} onChange={set('job_description')} className="textarea-field"
               />
             </div>

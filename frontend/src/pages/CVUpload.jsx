@@ -36,7 +36,13 @@ export default function CVPage() {
     setUploading(true);
     try {
       const { data } = await cvAPI.upload(file);
-      setExtractedText(data.extracted_text);
+      const rawText = data.extracted_text || '';
+      if (rawText.length > 20000) {
+        setExtractedText(rawText.slice(0, 20000));
+        toast('CV text exceeded 20,000 characters and was trimmed to fit the analysis limit.', { icon: '⚠️' });
+      } else {
+        setExtractedText(rawText);
+      }
       setFilename(data.filename);
       toast.success('Text extracted — fill in the job details below');
     } catch (err) {
@@ -121,6 +127,7 @@ export default function CVPage() {
             <label className="label">Job Title</label>
             <input
               type="text"
+              maxLength={200}
               placeholder="e.g. Senior Software Engineer"
               value={form.job_title}
               onChange={e => setForm(f => ({ ...f, job_title: e.target.value }))}
@@ -133,10 +140,11 @@ export default function CVPage() {
             <label className="label">Job Description</label>
             <div className="flex items-center gap-1.5 mb-1.5">
               <Info className="w-3 h-3 text-ink-400" />
-              <span className="text-xs text-ink-400">Paste the full listing for the best match analysis</span>
+              <span className="text-xs text-ink-400">Paste the full listing for the best match analysis (max 10,000 characters)</span>
             </div>
             <textarea
               rows={8}
+              maxLength={10000}
               placeholder="Paste the full job description here…"
               value={form.job_description}
               onChange={e => setForm(f => ({ ...f, job_description: e.target.value }))}
