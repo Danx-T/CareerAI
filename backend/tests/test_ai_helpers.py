@@ -521,7 +521,7 @@ class TestGroqRetryAndEdgeCases:
             return {
                 "questions": [
                     {"question_text": "   ", "category": "technical"},
-                    {"question_text": "Q1 valid?", "category": "technical"},
+                    {"question_text": "How to achieve latency &lt;50ms and uptime &gt;99.9%?", "category": "technical"},
                     {"question_text": "Q2 valid?", "category": "behavioral"},
                     {"question_text": "Q3 valid?", "category": "situational"},
                     {"question_text": "Q4 excess?", "category": "technical"},
@@ -531,7 +531,10 @@ class TestGroqRetryAndEdgeCases:
         monkeypatch.setattr(ai_service, "_generate_json", _fake_generate_json)
         questions = await generate_interview_questions("Backend Dev", "Python FastAPI", num_questions=2)
         assert len(questions) == 2
-        assert [q["question_text"] for q in questions] == ["Q1 valid?", "Q2 valid?"]
+        assert [q["question_text"] for q in questions] == [
+            "How to achieve latency <50ms and uptime >99.9%?",
+            "Q2 valid?",
+        ]
         assert [q["order_index"] for q in questions] == [1, 2]
 
     @pytest.mark.asyncio

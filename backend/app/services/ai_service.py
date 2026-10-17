@@ -526,7 +526,7 @@ Include:
     for q in raw_questions:
         if not isinstance(q, dict):
             continue
-        q_text = str(q.get("question_text") or "").strip()
+        q_text = _unescape_text(str(q.get("question_text") or "").strip())
         if not q_text:
             continue
         cat = _normalize_category(q.get("category", "behavioral"))

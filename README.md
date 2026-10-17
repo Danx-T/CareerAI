@@ -76,7 +76,7 @@ CareerAI helps candidates prepare for technical and behavioral hiring processes:
 - Blocks deactivated accounts (`is_active=False`) on both login and authenticated API requests.
 
 ### 5. Automated Testing & CI Pipeline
-- **108 backend Pytest tests + 7 frontend automated tests** covering JSON parsing fallbacks, score/list sanitizers, `respx`-mocked HTTP retry/backoff behavior, PyMuPDF extraction, authentication, admin RBAC & CLI provisioning, CV workflows, cascade deletions, interview evaluation flows, Axios 401 loop-guard interceptors, and React component rendering.
+- **109 backend Pytest tests + 7 frontend automated tests** covering JSON parsing fallbacks, score/list sanitizers, `respx`-mocked HTTP retry/backoff behavior, PyMuPDF extraction, authentication, admin RBAC & CLI provisioning, CV workflows, cascade deletions, interview evaluation flows, Axios 401 loop-guard interceptors, and React component rendering.
 - Deterministic test execution using monkeypatched mock AI fixtures and `respx`, requiring no live Groq API keys in CI or local test runs.
 - Dual-job **GitHub Actions CI pipeline** (`.github/workflows/ci.yml`) running Python 3.11 (`pyflakes` + `pytest`) and Node 20 (`npm run lint` + `npm test` + `npm run build`) on pushes and pull requests.
 
@@ -310,8 +310,8 @@ npm test
 ```
 
 ### Test Suite Breakdown
-- **Backend Automated Tests**: **108 tests** (`pytest`)
-  - `tests/test_ai_helpers.py` (55 tests): JSON extraction fallbacks, score clamping (`_to_score` & `_to_score_optional`), list/dict string sanitization (`_to_str_list`), category normalization, CV text cleanup, PyMuPDF stream extraction, `respx`-mocked HTTP retry/backoff (`429` with `Retry-After` cap, `503` retry, `401` immediate failure), and question/evaluation edge cases.
+- **Backend Automated Tests**: **109 tests** (`pytest`)
+  - `tests/test_ai_helpers.py` (56 tests): JSON extraction fallbacks, score clamping (`_to_score` & `_to_score_optional`), list/dict string sanitization (`_to_str_list`), category normalization, CV text cleanup, PyMuPDF stream extraction, `respx`-mocked HTTP retry/backoff (`429` with `Retry-After` cap, `503` retry, `401` immediate failure), and question/evaluation edge cases.
   - `tests/test_auth.py` (11 tests): Registration, email normalization, duplicate email rejection, bcrypt 72-byte password boundary checks, login verification (including dummy hash timing check), deactivated account blocking, `create_admin` CLI script, and `/api/admin/*` RBAC endpoints.
   - `tests/test_cv.py` (20 tests): Bounded upload size checks, PDF magic byte validation, corrupt/empty PDF rejection, CV optimization persistence, input length validation, user history isolation, and SQLite foreign-key cascade deletion.
   - `tests/test_interview.py` (22 tests): Session creation, question count slicing, answer saving/clearing, partial evaluation preservation and answer edit reset when report generation fails, conflict guards (`409 Conflict` on completed sessions), and cross-user session isolation.
@@ -393,7 +393,7 @@ CareerAI/
 │   │   │   ├── ai_service.py    # Groq Cloud LLM client, JSON mode, backoff retry
 │   │   │   └── pdf_service.py   # PyMuPDF stream text extraction
 │   │   └── main.py              # FastAPI app initialization, lifespan, and CORS
-│   ├── tests/                   # 108 automated Pytest tests
+│   ├── tests/                   # 109 automated Pytest tests
 │   │   ├── conftest.py          # Test database lifecycle & deterministic mock AI fixtures
 │   │   ├── test_ai_helpers.py   # JSON parsing, sanitizers, respx retry & PDF tests
 │   │   ├── test_auth.py         # Authentication, create_admin CLI & admin RBAC tests
